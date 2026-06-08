@@ -1,0 +1,526 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum KycDocumentStatus {
+  not_started
+  draft_saved
+  skipped
+  submitted
+  under_review
+  accepted
+  rejected
+  resubmission_required
+}
+
+enum KycFileSlot {
+  front
+  back
+  document
+  extra
+}
+
+enum KycLinkStatus {
+  active
+  expired
+  revoked
+}
+
+enum KycOverallStatus {
+  created
+  link_sent
+  opened
+  in_progress
+  submitted
+  under_review
+  resubmission_required
+  approved
+  rejected
+  expired
+  cancelled
+}
+
+enum PurchaseEventStatus {
+  kyc_created
+  duplicate_pan_ignored
+  purchase_id_conflict
+  retry_same_payload
+  retry_same_pan_changed_payload
+}
+
+enum RequirementInputMode {
+  upload
+  live_photo_front
+  live_photo_front_back
+  upload_or_live_photo
+  live_video
+}
+
+enum ActorType {
+  system
+  buyer
+  admin
+  reviewer
+}
+
+enum KycVideoStatus {
+  session_started
+  recording_uploaded
+  submitted
+  quality_flagged
+  accepted
+  rejected
+  resubmission_required
+}
+
+enum KycVideoAttemptStatus {
+  uploaded
+  submitted
+  discarded
+}
+
+model KycMaster {
+  id            String           @id @default(uuid())
+
+  purchaseId    String
+  buyerName     String
+  buyerEmail    String
+  buyerMobile   String?
+  serviceType   String
+  amount        Float?
+
+  panHash       String           @unique
+  panMasked     String
+
+  entityChar    String
+  entityType    String
+  entityLabel   String
+
+  overallStatus KycOverallStatus @default(created)
+  currentStage  String?
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  purchaseEvents PurchaseEvent[]
+  duplicateLogs  KycDuplicateLog[] @relation("OriginalKycDuplicateLogs")
+  auditLogs      KycAuditLog[]
+  kycLinks       KycLink[]
+  consent        KycConsent?
+  documentSubmissions KycDocumentSubmission[]
+  documentProgress    KycDocumentProgress?
+  videoDeclaration    KycVideoDeclaration?
+  finalReviews        KycFinalReview[]
+
+  @@index([purchaseId])
+  @@index([entityType])
+  @@index([overallStatus])
+  @@map("kyc_masters")
+}
+
+model PurchaseEvent {
+  id               String              @id @default(uuid())
+
+  purchaseId       String              @unique
+
+  panHash          String
+  panMasked        String
+
+  payloadHash      String
+  status           PurchaseEventStatus
+
+  linkedKycId      String?
+  linkedKyc        KycMaster?           @relation(fields: [linkedKycId], references: [id])
+
+  responseSnapshot Json?
+  rawPayload       Json?
+
+  retryCount       Int                 @default(0)
+  lastRetryType    String?
+  lastRetriedAt    DateTime?
+
+  conflictCount    Int                 @default(0)
+  lastConflictAt   DateTime?
+
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([panHash])
+  @@index([status])
+  @@map("purchase_events")
+}
+
+model KycDuplicateLog {
+  id            String    @id @default(uuid())
+
+  purchaseId    String
+  panHash       String
+  panMasked     String
+
+  originalKycId String
+  originalKyc   KycMaster @relation("OriginalKycDuplicateLogs", fields: [originalKycId], references: [id])
+
+  reason        String
+  rawPayload    Json?
+
+  createdAt     DateTime  @default(now())
+
+  @@index([purchaseId])
+  @@index([panHash])
+  @@map("kyc_duplicate_logs")
+}
+
+model EntityType {
+  id          String   @id @default(uuid())
+
+  key         String   @unique
+  label       String
+  panChar     String?
+  description String?
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  requirements DocumentRequirement[]
+
+  @@map("entity_types")
+}
+
+model DocumentRequirement {
+  id           String               @id @default(uuid())
+
+  entityTypeId String
+  entityType   EntityType           @relation(fields: [entityTypeId], references: [id])
+
+  documentKey  String
+  documentName String
+
+  inputMode    RequirementInputMode
+  isRequired   Boolean              @default(true)
+  needsFront   Boolean              @default(false)
+  needsBack    Boolean              @default(false)
+  ocrEnabled   Boolean              @default(false)
+
+  sortOrder    Int                  @default(0)
+  isActive     Boolean              @default(true)
+
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  documentSubmissions KycDocumentSubmission[]
+
+  @@unique([entityTypeId, documentKey])
+  @@index([documentKey])
+  @@map("document_requirements")
+}
+
+model KycAuditLog {
+  id          String    @id @default(uuid())
+
+  kycId       String?
+  kyc         KycMaster? @relation(fields: [kycId], references: [id])
+
+  actorType   ActorType @default(system)
+  actorId     String?
+
+  action      String
+  oldStatus   String?
+  newStatus   String?
+
+  ipAddress   String?
+  userAgent   String?
+
+  metadata    Json?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([kycId])
+  @@index([action])
+  @@index([actorType])
+  @@map("kyc_audit_logs")
+}
+
+model KycLink {
+  id             String        @id @default(uuid())
+
+  kycId          String
+  kyc            KycMaster     @relation(fields: [kycId], references: [id])
+
+  tokenHash      String        @unique
+  status         KycLinkStatus @default(active)
+
+  expiresAt      DateTime
+
+  clickCount     Int           @default(0)
+  firstClickedAt DateTime?
+  lastClickedAt  DateTime?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  clickLogs      KycLinkClickLog[]
+
+  @@index([kycId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("kyc_links")
+}
+
+model KycLinkClickLog {
+  id          String   @id @default(uuid())
+
+  kycLinkId   String
+  kycLink     KycLink  @relation(fields: [kycLinkId], references: [id])
+
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+
+  clickedAt   DateTime @default(now())
+
+  @@index([kycLinkId])
+  @@map("kyc_link_click_logs")
+}
+
+model KycConsent {
+  id                         String   @id @default(uuid())
+
+  kycId                      String   @unique
+  kyc                        KycMaster @relation(fields: [kycId], references: [id])
+
+  language                   String   @default("en")
+  consentVersion             String   @default("v1")
+
+  acceptedTerms              Boolean  @default(false)
+  acceptedPrivacy            Boolean  @default(false)
+  acceptedDocumentProcessing Boolean  @default(false)
+  acceptedVideoRecording     Boolean  @default(false)
+
+  ipAddress                  String?
+  userAgent                  String?
+
+  metadata                   Json?
+
+  acceptedAt                 DateTime @default(now())
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([language])
+  @@map("kyc_consents")
+}
+
+model KycDocumentSubmission {
+  id             String              @id @default(uuid())
+
+  kycId          String
+  kyc            KycMaster           @relation(fields: [kycId], references: [id])
+
+  requirementId  String
+  requirement    DocumentRequirement @relation(fields: [requirementId], references: [id])
+
+  documentKey    String
+  documentName   String
+  inputMode      RequirementInputMode
+  isRequired     Boolean
+
+  status         KycDocumentStatus   @default(not_started)
+
+  notes           String?
+  reviewerRemarks String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+
+  saveCount      Int                 @default(0)
+  currentVersion Int                 @default(0)
+
+  lastSavedAt    DateTime?
+  submittedAt    DateTime?
+  acceptedAt     DateTime?
+  rejectedAt     DateTime?
+
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  files          KycDocumentFile[]
+
+  @@unique([kycId, requirementId])
+  @@index([kycId])
+  @@index([requirementId])
+  @@index([status])
+  @@map("kyc_document_submissions")
+}
+
+model KycDocumentFile {
+  id             String                @id @default(uuid())
+
+  submissionId   String
+  submission     KycDocumentSubmission @relation(fields: [submissionId], references: [id])
+
+  kycId          String
+
+  fileSlot       KycFileSlot
+  originalName   String
+  storedName     String
+  mimeType       String
+  sizeBytes      Int
+
+  storagePath    String
+  publicPath     String?
+
+  version        Int                   @default(1)
+  isCurrent      Boolean               @default(true)
+
+  ipAddress      String?
+  userAgent      String?
+  metadata       Json?
+
+  uploadedAt     DateTime              @default(now())
+
+  @@index([submissionId])
+  @@index([kycId])
+  @@index([fileSlot])
+  @@index([isCurrent])
+  @@map("kyc_document_files")
+}
+
+model KycDocumentProgress {
+  id                   String   @id @default(uuid())
+
+  kycId                String   @unique
+  kyc                  KycMaster @relation(fields: [kycId], references: [id])
+
+  currentStepIndex     Int      @default(0)
+  currentRequirementId String?
+  currentDocumentKey   String?
+
+  totalSteps           Int      @default(0)
+  completedSteps       Int      @default(0)
+
+  isFinalSubmitted     Boolean  @default(false)
+  finalSubmittedAt     DateTime?
+
+  lastAction           String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("kyc_document_progress")
+}
+
+model KycVideoDeclaration {
+  id                  String         @id @default(uuid())
+
+  kycId               String         @unique
+  kyc                 KycMaster      @relation(fields: [kycId], references: [id])
+
+  declarantFullName   String
+  declarantRole       String?
+  businessName        String
+  serviceType         String
+  language            String         @default("en")
+
+  scriptVersion       String         @default("v1")
+  scriptText          String
+  runtimeCode         String
+
+  status              KycVideoStatus @default(session_started)
+
+  reviewerRemarks     String?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+
+  attemptCount        Int            @default(0)
+  currentAttemptId    String?
+
+  faceCheckPassed     Boolean        @default(false)
+  faceQualityMetadata Json?
+
+  startedAt           DateTime       @default(now())
+  submittedAt         DateTime?
+
+  ipAddress           String?
+  userAgent           String?
+
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  attempts            KycVideoAttempt[]
+
+  @@index([status])
+  @@map("kyc_video_declarations")
+}
+
+model KycVideoAttempt {
+  id                  String                  @id @default(uuid())
+
+  declarationId       String
+  declaration         KycVideoDeclaration     @relation(fields: [declarationId], references: [id])
+
+  kycId               String
+
+  status              KycVideoAttemptStatus   @default(uploaded)
+
+  originalName        String
+  storedName          String
+  mimeType            String
+  sizeBytes           Int
+
+  storagePath         String
+  publicPath          String?
+
+  durationSeconds     Float?
+
+  faceCheckPassed     Boolean                 @default(false)
+  faceQualityMetadata Json?
+
+  ipAddress           String?
+  userAgent           String?
+
+  uploadedAt          DateTime                @default(now())
+  submittedAt         DateTime?
+
+  @@index([declarationId])
+  @@index([kycId])
+  @@index([status])
+  @@map("kyc_video_attempts")
+}
+
+enum KycFinalDecision {
+  approved
+  resubmission_required
+  rejected
+}
+
+model KycFinalReview {
+  id          String           @id @default(uuid())
+
+  kycId       String
+  kyc         KycMaster        @relation(fields: [kycId], references: [id])
+
+  decision    KycFinalDecision
+  remarks     String?
+
+  reviewedBy  String?
+  ipAddress   String?
+  userAgent   String?
+
+  metadata    Json?
+
+  createdAt   DateTime         @default(now())
+
+  @@index([kycId])
+  @@index([decision])
+  @@map("kyc_final_reviews")
+}
+
+// Temporary test table. We will remove this later.
+model TestConnection {
+  id        String   @id @default(uuid())
+  message   String
+  createdAt DateTime @default(now())
+
+  @@map("test_connections")
+}
