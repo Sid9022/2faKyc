@@ -329,10 +329,13 @@ model KycDocumentSubmission {
 
   status         KycDocumentStatus   @default(not_started)
 
-  notes           String?
-  reviewerRemarks String?
-  reviewedBy      String?
-  reviewedAt      DateTime?
+  notes                   String?
+  reviewerRemarks         String?
+  reviewedBy              String?
+  reviewedAt              DateTime?
+
+  resubmissionRequestedAt DateTime?
+  resubmissionCycle       Int       @default(0)
 
   saveCount      Int                 @default(0)
   currentVersion Int                 @default(0)
@@ -431,6 +434,9 @@ model KycVideoDeclaration {
   reviewerRemarks     String?
   reviewedBy          String?
   reviewedAt          DateTime?
+
+  resubmissionRequestedAt DateTime?
+  resubmissionCycle       Int            @default(0)
 
   attemptCount        Int            @default(0)
   currentAttemptId    String?

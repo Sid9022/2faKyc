@@ -7,6 +7,14 @@ const { hashKycToken } = require("../kyc-link/kycLink.utils");
 
 const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
 
+function isResubmissionMode(kyc) {
+  return (
+    kyc.overallStatus === "resubmission_required" ||
+    kyc.currentStage === "resubmission_required" ||
+    kyc.currentStage === "resubmission_document_upload_in_progress"
+  );
+}
+
 function generateRuntimeCode() {
   return String(crypto.randomInt(100000, 999999));
 }
@@ -177,12 +185,34 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
     }
   });
 
-  if (existing?.status === "submitted") {
+  if (existing?.status === "accepted") {
+    return {
+      success: false,
+      statusCode: 403,
+      code: "VIDEO_ALREADY_ACCEPTED",
+      message: "Video declaration is already accepted and locked."
+    };
+  }
+
+  if (existing?.status === "submitted" && !isResubmissionMode(kyc)) {
     return {
       success: true,
       idempotent: true,
       message: "Video declaration was already submitted.",
       declaration: formatDeclaration(existing)
+    };
+  }
+
+  if (
+    isResubmissionMode(kyc) &&
+    existing &&
+    !["resubmission_required", "session_started"].includes(existing.status)
+  ) {
+    return {
+      success: false,
+      statusCode: 403,
+      code: "VIDEO_NOT_REQUESTED_FOR_RESUBMISSION",
+      message: "Video declaration is not requested for resubmission."
     };
   }
 
@@ -211,8 +241,12 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
         scriptText,
         runtimeCode,
         status: "session_started",
+        currentAttemptId: null,
         faceCheckPassed: false,
         faceQualityMetadata: null,
+        reviewerRemarks: existing?.reviewerRemarks || null,
+        reviewedBy: null,
+        reviewedAt: null,
         startedAt: new Date(),
         ipAddress: requestMeta.ipAddress || null,
         userAgent: requestMeta.userAgent || null
@@ -233,23 +267,32 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
       }
     });
 
+    const isResubmission = isResubmissionMode(kyc);
+
     await tx.kycMaster.update({
       where: {
         id: kyc.id
       },
-      data: {
-        overallStatus: "in_progress",
-        currentStage: "video_declaration_started"
-      }
+      data: isResubmission
+        ? {
+            overallStatus: "resubmission_required",
+            currentStage: "resubmission_video_declaration_started"
+          }
+        : {
+            overallStatus: "in_progress",
+            currentStage: "video_declaration_started"
+          }
     });
 
     await tx.kycAuditLog.create({
       data: {
         kycId: kyc.id,
         actorType: "buyer",
-        action: "video_declaration_session_started",
+        action: isResubmission
+          ? "video_declaration_resubmission_started"
+          : "video_declaration_session_started",
         oldStatus: kyc.overallStatus,
-        newStatus: "in_progress",
+        newStatus: isResubmission ? "resubmission_required" : "in_progress",
         ipAddress: requestMeta.ipAddress || null,
         userAgent: requestMeta.userAgent || null,
         metadata: {
@@ -325,7 +368,18 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
     };
   }
 
-  if (declaration.status === "submitted") {
+  const resubmissionMode = isResubmissionMode(kyc);
+
+  if (declaration.status === "accepted") {
+    return {
+      success: false,
+      statusCode: 403,
+      code: "VIDEO_ALREADY_ACCEPTED",
+      message: "Video declaration is already accepted and locked."
+    };
+  }
+
+  if (declaration.status === "submitted" && !resubmissionMode) {
     return {
       success: false,
       statusCode: 409,
@@ -402,6 +456,8 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
         currentAttemptId: attempt.id,
         faceCheckPassed,
         faceQualityMetadata,
+        reviewedBy: null,
+        reviewedAt: null,
         submittedAt: new Date()
       }
     });
@@ -412,7 +468,9 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
       },
       data: {
         overallStatus: "submitted",
-        currentStage: "buyer_submission_completed"
+        currentStage: resubmissionMode
+          ? "resubmission_submitted"
+          : "buyer_submission_completed"
       }
     });
 
@@ -420,7 +478,9 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
       data: {
         kycId: kyc.id,
         actorType: "buyer",
-        action: "video_declaration_submitted",
+        action: resubmissionMode
+          ? "video_declaration_resubmitted"
+          : "video_declaration_submitted",
         oldStatus: kyc.overallStatus,
         newStatus: "submitted",
         ipAddress: requestMeta.ipAddress || null,
@@ -430,7 +490,9 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
           attemptId: attempt.id,
           faceCheckPassed,
           durationSeconds,
-          currentStage: "buyer_submission_completed"
+          currentStage: resubmissionMode
+            ? "resubmission_submitted"
+            : "buyer_submission_completed"
         }
       }
     });

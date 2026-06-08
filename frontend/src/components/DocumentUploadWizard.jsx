@@ -137,7 +137,13 @@ function getSaveButtonLabel({ activeStep, selectedFiles, t }) {
   return t.saveNext;
 }
 
-export default function DocumentUploadWizard({ token, language = "en", onBack, onNextVideo }) {
+export default function DocumentUploadWizard({
+  token,
+  language = "en",
+  onBack,
+  onNextVideo,
+  onResubmissionDone
+}) {
   const t = content[language] || content.en;
 
   const [workspace, setWorkspace] = useState(null);
@@ -158,6 +164,7 @@ export default function DocumentUploadWizard({ token, language = "en", onBack, o
   const activeStep = steps[activeIndex];
 
   const isLocked = progress?.isFinalSubmitted;
+  const isResubmissionMode = workspace?.kyc?.isResubmissionMode;
 
   const savedRequiredCount = useMemo(() => {
     return steps.filter((step) => step.isRequired && isStepSaved(step)).length;
@@ -405,11 +412,15 @@ export default function DocumentUploadWizard({ token, language = "en", onBack, o
         </div>
 
         <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-gray-950">
-          {t.lockedTitle}
+          {isResubmissionMode
+            ? "Corrected documents submitted"
+            : t.lockedTitle}
         </h1>
 
         <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
-          {t.lockedText}
+          {isResubmissionMode
+            ? "Your corrected document has been submitted for review. Accepted items remain locked."
+            : t.lockedText}
         </p>
 
         <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 p-4">
@@ -422,14 +433,24 @@ export default function DocumentUploadWizard({ token, language = "en", onBack, o
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={onNextVideo}
-            className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black"
-          >
-            <Video size={16} />
-            Continue to video declaration
-          </button>
+          {isResubmissionMode ? (
+            <button
+              type="button"
+              onClick={onResubmissionDone}
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black"
+            >
+              Back to correction summary
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onNextVideo}
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black"
+            >
+              <Video size={16} />
+              Continue to video declaration
+            </button>
+          )}
 
           <button
             type="button"

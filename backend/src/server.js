@@ -11,6 +11,7 @@ const kycLinkRoutes = require("./modules/kyc-link/kycLink.routes");
 const kycDocumentRoutes = require("./modules/kyc-documents/kycDocument.routes");
 const kycVideoRoutes = require("./modules/kyc-video/kycVideo.routes");
 const reviewerRoutes = require("./modules/reviewer/reviewer.routes");
+const kycResubmissionRoutes = require("./modules/kyc-resubmission/kycResubmission.routes");
 
 const app = express();
 
@@ -54,6 +55,7 @@ app.use("/api/dev", purchaseRoutes);
 app.use("/api", kycLinkRoutes);
 app.use("/api", kycDocumentRoutes);
 app.use("/api", kycVideoRoutes);
+app.use("/api", kycResubmissionRoutes);
 app.use("/api/reviewer", reviewerRoutes);
 
 app.post("/api/dev/test-db", async (req, res) => {

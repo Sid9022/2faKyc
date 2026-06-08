@@ -7,6 +7,13 @@ const { hashKycToken } = require("../kyc-link/kycLink.utils");
 
 const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
 
+function isResubmissionMode(kyc) {
+  return (
+    kyc.overallStatus === "resubmission_required" ||
+    kyc.currentStage === "resubmission_required"
+  );
+}
+
 function getUploadRoot() {
   return path.join(process.cwd(), "uploads", "kyc-documents");
 }
@@ -148,6 +155,30 @@ async function getActiveKycByToken(rawToken) {
 }
 
 async function getDocumentRequirementsForKyc(kyc) {
+  if (isResubmissionMode(kyc)) {
+    const failedSubmissions = await prisma.kycDocumentSubmission.findMany({
+      where: {
+        kycId: kyc.id,
+        resubmissionRequestedAt: {
+          not: null
+        },
+        status: {
+          in: ["resubmission_required", "draft_saved", "submitted"]
+        }
+      },
+      include: {
+        requirement: true
+      },
+      orderBy: {
+        createdAt: "asc"
+      }
+    });
+
+    return failedSubmissions
+      .map((submission) => submission.requirement)
+      .filter(Boolean);
+  }
+
   const entityType = await prisma.entityType.findUnique({
     where: {
       key: kyc.entityType
@@ -258,7 +289,9 @@ async function getDocumentWorkspace(rawToken) {
         currentDocumentKey: steps[0]?.documentKey || null,
         totalSteps: steps.length,
         completedSteps,
-        lastAction: "document_workspace_opened"
+        lastAction: isResubmissionMode(kyc)
+          ? "resubmission_document_workspace_opened"
+          : "document_workspace_opened"
       }
     });
   } else {
@@ -284,7 +317,8 @@ async function getDocumentWorkspace(rawToken) {
       entityLabel: kyc.entityLabel,
       serviceType: kyc.serviceType,
       overallStatus: kyc.overallStatus,
-      currentStage: kyc.currentStage
+      currentStage: kyc.currentStage,
+      isResubmissionMode: isResubmissionMode(kyc)
     },
     progress,
     steps
@@ -432,6 +466,50 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
       }
     });
 
+  const resubmissionMode = isResubmissionMode(kyc);
+
+  if (resubmissionMode) {
+    if (skipOptional) {
+      return {
+        success: false,
+        statusCode: 400,
+        code: "SKIP_NOT_ALLOWED_IN_RESUBMISSION",
+        message: "Please upload the corrected document. Skipping is not allowed during resubmission."
+      };
+    }
+
+    if (!existingSubmissionWithFiles) {
+      return {
+        success: false,
+        statusCode: 403,
+        code: "DOCUMENT_NOT_PART_OF_RESUBMISSION",
+        message: "This document is not part of the current resubmission request."
+      };
+    }
+
+    if (!existingSubmissionWithFiles.resubmissionRequestedAt) {
+      return {
+        success: false,
+        statusCode: 403,
+        code: "DOCUMENT_LOCKED",
+        message: "This document is already accepted or not requested for correction."
+      };
+    }
+
+    if (
+      !["resubmission_required", "draft_saved", "submitted"].includes(
+        existingSubmissionWithFiles.status
+      )
+    ) {
+      return {
+        success: false,
+        statusCode: 403,
+        code: "DOCUMENT_NOT_EDITABLE",
+        message: `This document is currently ${existingSubmissionWithFiles.status} and cannot be edited.`
+      };
+    }
+  }
+
   const existingSlots = new Set(
     existingSubmissionWithFiles?.files?.map((file) => file.fileSlot) || []
   );
@@ -513,7 +591,12 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
           increment: isReplacingFiles ? 1 : 0
         },
         currentVersion: nextVersion,
-        lastSavedAt: new Date()
+        lastSavedAt: new Date(),
+
+        reviewedBy: resubmissionMode ? null : submission.reviewedBy,
+        reviewedAt: resubmissionMode ? null : submission.reviewedAt,
+        acceptedAt: resubmissionMode ? null : submission.acceptedAt,
+        rejectedAt: resubmissionMode ? null : submission.rejectedAt
       }
     });
 
@@ -553,21 +636,30 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
       where: {
         id: kyc.id
       },
-      data: {
-        overallStatus: "in_progress",
-        currentStage: "document_upload_in_progress"
-      }
+      data: resubmissionMode
+        ? {
+            overallStatus: "resubmission_required",
+            currentStage: "resubmission_document_upload_in_progress"
+          }
+        : {
+            overallStatus: "in_progress",
+            currentStage: "document_upload_in_progress"
+          }
     });
 
     await tx.kycAuditLog.create({
       data: {
         kycId: kyc.id,
         actorType: "buyer",
-        action: skipOptional
-          ? "kyc_optional_document_skipped"
-          : isReplacingFiles
-            ? "kyc_document_saved"
-            : "kyc_document_next_without_changes",
+        action: resubmissionMode
+          ? isReplacingFiles
+            ? "kyc_resubmission_document_saved"
+            : "kyc_resubmission_document_next_without_changes"
+          : skipOptional
+            ? "kyc_optional_document_skipped"
+            : isReplacingFiles
+              ? "kyc_document_saved"
+              : "kyc_document_next_without_changes",
         ipAddress: requestMeta.ipAddress || null,
         userAgent: requestMeta.userAgent || null,
         metadata: {
@@ -673,6 +765,7 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
   if (!workspace.success) return workspace;
 
   const { kyc, steps } = workspace;
+  const resubmissionMode = kyc.isResubmissionMode;
 
   const progress = await prisma.kycDocumentProgress.findUnique({
     where: {
@@ -728,31 +821,63 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
         isFinalSubmitted: true,
         finalSubmittedAt: new Date(),
         completedSteps: steps.length,
-        lastAction: "documents_final_submitted"
+        lastAction: resubmissionMode
+          ? "resubmission_documents_final_submitted"
+          : "documents_final_submitted"
       }
     });
+
+    let nextKycState = resubmissionMode
+      ? {
+          overallStatus: "submitted",
+          currentStage: "resubmission_submitted"
+        }
+      : {
+          overallStatus: "in_progress",
+          currentStage: "documents_completed"
+        };
+
+    if (resubmissionMode) {
+      const videoDeclaration = await tx.kycVideoDeclaration.findUnique({
+        where: {
+          kycId: kyc.kycId
+        }
+      });
+
+      const videoStillNeedsCorrection =
+        videoDeclaration?.resubmissionRequestedAt &&
+        ["resubmission_required", "session_started"].includes(
+          videoDeclaration.status
+        );
+
+      if (videoStillNeedsCorrection) {
+        nextKycState = {
+          overallStatus: "resubmission_required",
+          currentStage: "resubmission_video_pending"
+        };
+      }
+    }
 
     const updatedKyc = await tx.kycMaster.update({
       where: {
         id: kyc.kycId
       },
-      data: {
-        overallStatus: "in_progress",
-        currentStage: "documents_completed"
-      }
+      data: nextKycState
     });
 
     await tx.kycAuditLog.create({
       data: {
         kycId: kyc.kycId,
         actorType: "buyer",
-        action: "kyc_documents_final_submitted",
+        action: resubmissionMode
+          ? "kyc_resubmission_documents_final_submitted"
+          : "kyc_documents_final_submitted",
         oldStatus: kyc.overallStatus,
-        newStatus: "in_progress",
+        newStatus: nextKycState.overallStatus,
         ipAddress: requestMeta.ipAddress || null,
         userAgent: requestMeta.userAgent || null,
         metadata: {
-          currentStage: "documents_completed",
+          currentStage: nextKycState.currentStage,
           totalSteps: steps.length
         }
       }

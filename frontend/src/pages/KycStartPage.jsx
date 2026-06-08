@@ -18,6 +18,7 @@ import StatusPill from "../components/StatusPill";
 import ConsentScreen from "../components/ConsentScreen";
 import DocumentUploadWizard from "../components/DocumentUploadWizard";
 import VideoDeclarationScreen from "../components/VideoDeclarationScreen";
+import ResubmissionPortal from "../components/ResubmissionPortal";
 
 const copy = {
   en: {
@@ -120,6 +121,11 @@ export default function KycStartPage() {
 
       setData(result);
       if (
+        result.kyc.overallStatus === "resubmission_required" ||
+        result.kyc.currentStage?.startsWith("resubmission")
+      ) {
+        setStep("resubmission");
+      } else if (
         result.kyc.currentStage === "documents_completed" ||
         result.kyc.currentStage === "video_declaration_started" ||
         result.kyc.currentStage === "buyer_submission_completed"
@@ -198,7 +204,29 @@ export default function KycStartPage() {
           </div>
         </header>
 
-        {step === "documents" ? (
+        {step === "resubmission" ? (
+          <ResubmissionPortal
+            token={token}
+            language={language}
+            onCorrectDocuments={() => setStep("resubmission_documents")}
+            onCorrectVideo={() => setStep("resubmission_video")}
+            onBack={() => setStep("welcome")}
+          />
+        ) : step === "resubmission_documents" ? (
+          <DocumentUploadWizard
+            token={token}
+            language={language}
+            onBack={() => setStep("resubmission")}
+            onResubmissionDone={() => setStep("resubmission")}
+          />
+        ) : step === "resubmission_video" ? (
+          <VideoDeclarationScreen
+            token={token}
+            language={language}
+            buyerName={kyc?.buyerName}
+            onBack={() => setStep("resubmission")}
+          />
+        ) : step === "documents" ? (
           <DocumentUploadWizard
             token={token}
             language={language}
@@ -262,6 +290,11 @@ export default function KycStartPage() {
                     className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition-all hover:-translate-y-0.5 hover:bg-black active:translate-y-0"
                     onClick={() => {
                       if (
+                        kyc?.overallStatus === "resubmission_required" ||
+                        kyc?.currentStage?.startsWith("resubmission")
+                      ) {
+                        setStep("resubmission");
+                      } else if (
                         kyc?.currentStage === "documents_completed" ||
                         kyc?.currentStage === "video_declaration_started" ||
                         kyc?.currentStage === "buyer_submission_completed"
@@ -277,14 +310,17 @@ export default function KycStartPage() {
                       }
                     }}
                   >
-                    {kyc?.currentStage === "documents_completed" ||
-                    kyc?.currentStage === "video_declaration_started" ||
-                    kyc?.currentStage === "buyer_submission_completed"
-                      ? "Continue video declaration"
-                      : kyc?.currentStage === "consent_completed" ||
-                          kyc?.currentStage === "document_upload_in_progress"
-                        ? "Continue documents"
-                        : t.continue}
+                    {kyc?.overallStatus === "resubmission_required" ||
+                    kyc?.currentStage?.startsWith("resubmission")
+                      ? "View correction request"
+                      : kyc?.currentStage === "documents_completed" ||
+                          kyc?.currentStage === "video_declaration_started" ||
+                          kyc?.currentStage === "buyer_submission_completed"
+                        ? "Continue video declaration"
+                        : kyc?.currentStage === "consent_completed" ||
+                            kyc?.currentStage === "document_upload_in_progress"
+                          ? "Continue documents"
+                          : t.continue}
                     <ArrowRight size={17} />
                   </button>
 

@@ -132,3 +132,8 @@ export async function applyKycFinalDecision(kycId, payload) {
 
   return response.data;
 }
+
+export async function getKycResubmissionWorkspace(token) {
+  const response = await api.get(`/api/public/kyc/${token}/resubmission`);
+  return response.data;
+}

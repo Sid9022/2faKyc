@@ -363,7 +363,8 @@ async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta 
               reviewedBy: reviewer.reviewerId,
               reviewedAt: new Date(),
               acceptedAt: new Date(),
-              rejectedAt: null
+              rejectedAt: null,
+              resubmissionRequestedAt: null
             }
           : {
               status: "resubmission_required",
@@ -371,7 +372,11 @@ async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta 
               reviewedBy: reviewer.reviewerId,
               reviewedAt: new Date(),
               acceptedAt: null,
-              rejectedAt: new Date()
+              rejectedAt: new Date(),
+              resubmissionRequestedAt: new Date(),
+              resubmissionCycle: {
+                increment: 1
+              }
             }
     });
 
@@ -466,13 +471,18 @@ async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta =
               status: "accepted",
               reviewerRemarks: remarks || "Video declaration accepted.",
               reviewedBy: reviewer.reviewerId,
-              reviewedAt: new Date()
+              reviewedAt: new Date(),
+              resubmissionRequestedAt: null
             }
           : {
               status: "resubmission_required",
               reviewerRemarks: remarks,
               reviewedBy: reviewer.reviewerId,
-              reviewedAt: new Date()
+              reviewedAt: new Date(),
+              resubmissionRequestedAt: new Date(),
+              resubmissionCycle: {
+                increment: 1
+              }
             }
     });
 
@@ -658,6 +668,38 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}) {
         currentStage: next.currentStage
       }
     });
+
+    if (decision === "resubmission_required") {
+      const firstFailedDoc = failedDocs[0];
+
+      if (firstFailedDoc) {
+        await tx.kycDocumentProgress.upsert({
+          where: {
+            kycId
+          },
+          update: {
+            currentStepIndex: 0,
+            currentRequirementId: firstFailedDoc.requirementId,
+            currentDocumentKey: firstFailedDoc.documentKey,
+            totalSteps: failedDocs.length,
+            completedSteps: 0,
+            isFinalSubmitted: false,
+            finalSubmittedAt: null,
+            lastAction: "resubmission_required"
+          },
+          create: {
+            kycId,
+            currentStepIndex: 0,
+            currentRequirementId: firstFailedDoc.requirementId,
+            currentDocumentKey: firstFailedDoc.documentKey,
+            totalSteps: failedDocs.length,
+            completedSteps: 0,
+            isFinalSubmitted: false,
+            lastAction: "resubmission_required"
+          }
+        });
+      }
+    }
 
     await tx.kycAuditLog.create({
       data: {
