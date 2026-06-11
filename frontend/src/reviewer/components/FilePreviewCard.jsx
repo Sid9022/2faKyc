@@ -1,5 +1,5 @@
 import { ExternalLink, FileText, Image as ImageIcon } from "lucide-react";
-import { API_BASE_URL } from "../../api/kycApi";
+import { reviewerMediaUrl } from "../../api/kycApi";
 import ReviewerBadge from "./ReviewerBadge";
 
 function isImage(mimeType = "") {
@@ -11,7 +11,7 @@ function isPdf(mimeType = "") {
 }
 
 export default function FilePreviewCard({ file }) {
-  const url = encodeURI(`${API_BASE_URL}${file.publicPath}`);
+  const url = reviewerMediaUrl(file.fileUrl);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white">

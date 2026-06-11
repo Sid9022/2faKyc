@@ -83,6 +83,23 @@ enum KycVideoAttemptStatus {
   discarded
 }
 
+enum UserRole {
+  admin
+  reviewer
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum EmailStatus {
+  queued
+  sent
+  failed
+  simulated
+}
+
 model KycMaster {
   id            String           @id @default(uuid())
 
@@ -91,7 +108,7 @@ model KycMaster {
   buyerEmail    String
   buyerMobile   String?
   serviceType   String
-  amount        Float?
+  amount        Decimal?         @db.Decimal(12, 2)
 
   panHash       String           @unique
   panMasked     String
@@ -329,6 +346,13 @@ model KycDocumentSubmission {
 
   status         KycDocumentStatus   @default(not_started)
 
+  // Snapshot of the requirement at KYC-creation time, so admin edits to
+  // DocumentRequirement never change an in-flight checklist.
+  needsFront     Boolean             @default(false)
+  needsBack      Boolean             @default(false)
+  ocrEnabled     Boolean             @default(false)
+  sortOrder      Int                 @default(0)
+
   notes                   String?
   reviewerRemarks         String?
   reviewedBy              String?
@@ -370,6 +394,7 @@ model KycDocumentFile {
   storedName     String
   mimeType       String
   sizeBytes      Int
+  fileHash       String?
 
   storagePath    String
   publicPath     String?
@@ -387,6 +412,7 @@ model KycDocumentFile {
   @@index([kycId])
   @@index([fileSlot])
   @@index([isCurrent])
+  @@index([fileHash])
   @@map("kyc_document_files")
 }
 
@@ -522,11 +548,106 @@ model KycFinalReview {
   @@map("kyc_final_reviews")
 }
 
-// Temporary test table. We will remove this later.
-model TestConnection {
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  fullName     String
+  role         UserRole
+  status       UserStatus @default(active)
+  lastLoginAt  DateTime?
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  refreshTokens RefreshToken[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model EmailLog {
+  id               String      @id @default(uuid())
+
+  kycId            String?
+  emailType        String
+  recipientHash    String
+  recipientMasked  String
+
+  subject          String
+  status           EmailStatus @default(queued)
+  providerResponse Json?
+  error            String?
+  attemptCount     Int         @default(0)
+
+  sentAt           DateTime?
+  createdAt        DateTime    @default(now())
+
+  @@index([kycId])
+  @@index([emailType])
+  @@index([status])
+  @@map("email_logs")
+}
+
+model ReminderState {
+  id             String    @id @default(uuid())
+
+  kycId          String    @unique
+
+  reminderCount  Int       @default(0)
+  maxReminders   Int       @default(5)
+  lastReminderAt DateTime?
+  nextDueAt      DateTime?
+  exhausted      Boolean   @default(false)
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([nextDueAt])
+  @@index([exhausted])
+  @@map("reminder_states")
+}
+
+model KycAutoCheck {
   id        String   @id @default(uuid())
-  message   String
+
+  kycId     String
+  checkKey  String
+  passed    Boolean?
+  score     Float?
+  details   Json?
+
   createdAt DateTime @default(now())
 
-  @@map("test_connections")
+  @@index([kycId])
+  @@index([checkKey])
+  @@map("kyc_auto_checks")
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
 }

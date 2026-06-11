@@ -1,4 +1,50 @@
+const bcrypt = require("bcryptjs");
+
 const prisma = require("../src/config/prisma");
+const env = require("../src/config/env");
+
+async function seedUsers() {
+  const adminEmail = env.SEED_ADMIN_EMAIL.toLowerCase();
+
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: adminEmail }
+  });
+
+  if (!existingAdmin) {
+    await prisma.user.create({
+      data: {
+        email: adminEmail,
+        passwordHash: await bcrypt.hash(env.SEED_ADMIN_PASSWORD, 10),
+        fullName: "System Admin",
+        role: "admin",
+        status: "active"
+      }
+    });
+
+    console.log(
+      `Seeded admin user: ${adminEmail} (password from SEED_ADMIN_PASSWORD env). CHANGE IT after first login.`
+    );
+  }
+}
+
+async function seedSettings() {
+  const defaults = {
+    max_reminders: 5,
+    reminder_interval_hours: 24,
+    consent_version: "v1",
+    video_script_version: "v1"
+  };
+
+  for (const [key, value] of Object.entries(defaults)) {
+    await prisma.appSetting.upsert({
+      where: { key },
+      update: {},
+      create: { key, value }
+    });
+  }
+
+  console.log("Default app settings seeded.");
+}
 
 async function upsertEntityWithRequirements(entity) {
   const savedEntity = await prisma.entityType.upsert({
@@ -215,6 +261,9 @@ async function main() {
   }
 
   console.log("Default entity types and document requirements seeded successfully.");
+
+  await seedUsers();
+  await seedSettings();
 }
 
 main()

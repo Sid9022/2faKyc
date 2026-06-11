@@ -7,8 +7,12 @@ const {
   reviewVideo,
   finalDecision
 } = require("./reviewer.controller");
+const { requireAuth, requireRole } = require("../../middleware/auth.middleware");
 
 const router = express.Router();
+
+// Every reviewer route requires a logged-in reviewer or admin.
+router.use(requireAuth, requireRole("reviewer", "admin"));
 
 router.get("/kyc-cases", listCases);
 router.get("/kyc-cases/:kycId", getCaseDetail);

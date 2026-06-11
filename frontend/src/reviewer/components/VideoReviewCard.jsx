@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CheckCircle2, RotateCcw, ShieldCheck, Video } from "lucide-react";
-import { API_BASE_URL, reviewVideoDeclaration } from "../../api/kycApi";
+import { reviewerMediaUrl, reviewVideoDeclaration } from "../../api/kycApi";
 import ReviewDecisionBox from "./ReviewDecisionBox";
 import ReviewerBadge from "./ReviewerBadge";
 
@@ -84,7 +84,7 @@ export default function VideoReviewCard({ videoDeclaration, caseStatus, onReview
         </p>
       </div>
 
-      {currentAttempt?.publicPath && (
+      {currentAttempt?.streamUrl && (
         <div className="mt-5">
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-gray-950">
@@ -92,7 +92,7 @@ export default function VideoReviewCard({ videoDeclaration, caseStatus, onReview
             </p>
 
             <a
-              href={encodeURI(`${API_BASE_URL}${currentAttempt.publicPath}`)}
+              href={reviewerMediaUrl(currentAttempt.streamUrl)}
               target="_blank"
               rel="noreferrer"
               className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
@@ -103,7 +103,7 @@ export default function VideoReviewCard({ videoDeclaration, caseStatus, onReview
 
           <div className="overflow-hidden rounded-2xl border border-gray-100 bg-black">
             <video
-              src={encodeURI(`${API_BASE_URL}${currentAttempt.publicPath}`)}
+              src={reviewerMediaUrl(currentAttempt.streamUrl)}
               controls
               preload="metadata"
               className="aspect-video w-full bg-black object-contain"

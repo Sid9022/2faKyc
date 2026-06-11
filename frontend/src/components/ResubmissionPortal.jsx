@@ -415,7 +415,7 @@ function CorrectionDocumentItem({ doc }) {
           {doc.files.map((file) => (
             <a
               key={file.id}
-              href={encodeURI(`${API_BASE_URL}${file.publicPath}`)}
+              href={`${API_BASE_URL}${file.fileUrl}`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100"

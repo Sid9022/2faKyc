@@ -6,15 +6,7 @@ const {
   getDevVideoAttempts
 } = require("./kycVideo.service");
 
-function getRequestMeta(req) {
-  return {
-    ipAddress:
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      null,
-    userAgent: req.headers["user-agent"] || null
-  };
-}
+const { getRequestMeta } = require("../../utils/request.util");
 
 async function loadVideoWorkspace(req, res) {
   try {

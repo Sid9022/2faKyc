@@ -10,23 +10,24 @@ const {
 const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
 const OPEN_LINK_STATUSES = ["created", "link_sent"];
 
-async function getChecklistByEntityType(entityKey) {
-  const entityType = await prisma.entityType.findUnique({
-    where: { key: entityKey },
-    include: {
-      requirements: {
-        where: { isActive: true },
-        orderBy: { sortOrder: "asc" }
-      }
-    }
-  });
+/**
+ * Buyer checklist from the snapshotted submission rows (real statuses),
+ * plus the live-video step from the declaration if one exists.
+ */
+async function getChecklistForKyc(kycId) {
+  const [submissions, videoDeclaration] = await Promise.all([
+    prisma.kycDocumentSubmission.findMany({
+      where: { kycId },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
+    }),
+    prisma.kycVideoDeclaration.findUnique({
+      where: { kycId },
+      select: { status: true }
+    })
+  ]);
 
-  if (!entityType) {
-    return [];
-  }
-
-  return entityType.requirements.map((item) => ({
-    id: item.id,
+  const checklist = submissions.map((item) => ({
+    id: item.requirementId,
     key: item.documentKey,
     label: item.documentName,
     inputMode: item.inputMode,
@@ -34,8 +35,22 @@ async function getChecklistByEntityType(entityKey) {
     needsFront: item.needsFront,
     needsBack: item.needsBack,
     ocrEnabled: item.ocrEnabled,
-    status: "pending"
+    status: item.status === "not_started" ? "pending" : item.status
   }));
+
+  checklist.push({
+    id: "live_video_declaration",
+    key: "live_video_declaration",
+    label: "Live Video Declaration",
+    inputMode: "live_video",
+    required: true,
+    needsFront: false,
+    needsBack: false,
+    ocrEnabled: false,
+    status: videoDeclaration?.status || "pending"
+  });
+
+  return checklist;
 }
 
 async function createSecureKycLinkForKyc(
@@ -82,7 +97,9 @@ async function createSecureKycLinkForKyc(
     }
   });
 
-  if (!FINAL_KYC_STATUSES.includes(kyc.overallStatus)) {
+  // preserveStatus: reminder-driven regeneration must not regress an
+  // in_progress / resubmission_required KYC back to link_sent.
+  if (!options.preserveStatus && !FINAL_KYC_STATUSES.includes(kyc.overallStatus)) {
     await db.kycMaster.update({
       where: { id: kycId },
       data: {
@@ -98,9 +115,10 @@ async function createSecureKycLinkForKyc(
       actorType: "system",
       action: "kyc_link_generated",
       oldStatus: kyc.overallStatus,
-      newStatus: FINAL_KYC_STATUSES.includes(kyc.overallStatus)
-        ? kyc.overallStatus
-        : "link_sent",
+      newStatus:
+        options.preserveStatus || FINAL_KYC_STATUSES.includes(kyc.overallStatus)
+          ? kyc.overallStatus
+          : "link_sent",
       ipAddress: requestMeta.ipAddress || null,
       userAgent: requestMeta.userAgent || null,
       metadata: {
@@ -243,7 +261,7 @@ async function openPublicKycLink(rawToken, requestMeta = {}) {
     return updatedLink;
   });
 
-  const checklist = await getChecklistByEntityType(link.kyc.entityType);
+  const checklist = await getChecklistForKyc(link.kycId);
 
   return {
     success: true,
@@ -389,7 +407,7 @@ async function submitKycConsent(rawToken, payload = {}, requestMeta = {}) {
   });
 
   if (existingConsent) {
-    const checklist = await getChecklistByEntityType(link.kyc.entityType);
+    const checklist = await getChecklistForKyc(link.kycId);
 
     await prisma.kycAuditLog.create({
       data: {
@@ -479,7 +497,7 @@ async function submitKycConsent(rawToken, payload = {}, requestMeta = {}) {
     return consent;
   });
 
-  const checklist = await getChecklistByEntityType(link.kyc.entityType);
+  const checklist = await getChecklistForKyc(link.kycId);
 
   return {
     success: true,

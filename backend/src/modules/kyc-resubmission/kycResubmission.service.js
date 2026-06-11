@@ -1,5 +1,6 @@
 const prisma = require("../../config/prisma");
 const { hashKycToken } = require("../kyc-link/kycLink.utils");
+const { decryptField } = require("../../utils/crypto.util");
 
 async function getResubmissionWorkspace(rawToken) {
   const tokenHash = hashKycToken(rawToken);
@@ -138,7 +139,7 @@ async function getResubmissionWorkspace(rawToken) {
     kyc: {
       kycId: kyc.id,
       buyerName: kyc.buyerName,
-      buyerEmail: kyc.buyerEmail,
+      buyerEmail: decryptField(kyc.buyerEmail),
       panMasked: kyc.panMasked,
       entityType: kyc.entityType,
       entityLabel: kyc.entityLabel,
@@ -153,8 +154,10 @@ async function getResubmissionWorkspace(rawToken) {
       videoAccepted,
       videoNeedsResubmission: Boolean(videoNeedingResubmission)
     },
-    acceptedDocuments: acceptedDocuments.map(formatDocument),
-    documentsNeedingResubmission: documentsNeedingResubmission.map(formatDocument),
+    acceptedDocuments: acceptedDocuments.map((doc) => formatDocument(doc, rawToken)),
+    documentsNeedingResubmission: documentsNeedingResubmission.map((doc) =>
+      formatDocument(doc, rawToken)
+    ),
     video: video
       ? {
           id: video.id,
@@ -166,13 +169,22 @@ async function getResubmissionWorkspace(rawToken) {
           reviewerRemarks: video.reviewerRemarks,
           resubmissionRequestedAt: video.resubmissionRequestedAt,
           resubmissionCycle: video.resubmissionCycle,
-          latestAttempt: video.attempts?.[0] || null
+          latestAttempt: video.attempts?.[0]
+            ? {
+                id: video.attempts[0].id,
+                status: video.attempts[0].status,
+                streamUrl: `/api/public/kyc/${rawToken}/video-attempts/${video.attempts[0].id}/stream`,
+                mimeType: video.attempts[0].mimeType,
+                durationSeconds: video.attempts[0].durationSeconds,
+                uploadedAt: video.attempts[0].uploadedAt
+              }
+            : null
         }
       : null
   };
 }
 
-function formatDocument(doc) {
+function formatDocument(doc, rawToken) {
   return {
     id: doc.id,
     requirementId: doc.requirementId,
@@ -191,7 +203,7 @@ function formatDocument(doc) {
       fileSlot: file.fileSlot,
       originalName: file.originalName,
       mimeType: file.mimeType,
-      publicPath: file.publicPath,
+      fileUrl: `/api/public/kyc/${rawToken}/files/${file.id}`,
       version: file.version,
       uploadedAt: file.uploadedAt
     })) || []

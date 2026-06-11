@@ -1,4 +1,18 @@
+const crypto = require("crypto");
+const env = require("../../config/env");
+
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+/**
+ * Deterministic PAN hash for lookups — raw PAN is never stored, so
+ * exact-match search/dedup goes through this hash.
+ */
+function hashPAN(pan) {
+  return crypto
+    .createHash("sha256")
+    .update(String(pan) + "::" + env.PAN_HASH_SECRET)
+    .digest("hex");
+}
 
 const PAN_ENTITY_MAP = {
   P: {
@@ -85,5 +99,6 @@ module.exports = {
   normalizePAN,
   validatePAN,
   detectEntityFromPAN,
-  maskPAN
+  maskPAN,
+  hashPAN
 };

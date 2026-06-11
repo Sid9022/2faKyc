@@ -741,7 +741,7 @@ function FileInputCard({
 
                 <div className="mt-1 flex flex-wrap items-center gap-3">
                   <a
-                    href={`${API_BASE_URL}${currentFile.publicPath}`}
+                    href={`${API_BASE_URL}${currentFile.fileUrl}`}
                     target="_blank"
                     rel="noreferrer"
                     className="text-xs font-bold text-blue-600 hover:text-blue-700"

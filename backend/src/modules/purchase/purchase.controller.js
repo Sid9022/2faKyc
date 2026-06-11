@@ -1,4 +1,5 @@
 const { dummyPurchaseSchema } = require("./purchase.schema");
+const { getRequestMeta } = require("../../utils/request.util");
 const {
   createKycFromPurchase,
   getDevKycRecords,
@@ -20,15 +21,7 @@ async function createDummyPurchase(req, res) {
       });
     }
 
-    const requestMeta = {
-      ipAddress:
-        req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        null,
-      userAgent: req.headers["user-agent"] || null
-    };
-
-    const result = await createKycFromPurchase(parsed.data, requestMeta);
+    const result = await createKycFromPurchase(parsed.data, getRequestMeta(req));
 
     return res.status(result.statusCode || 200).json(result);
   } catch (error) {

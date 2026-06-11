@@ -1,9 +1,17 @@
-const fs = require("fs");
 const path = require("path");
-const crypto = require("crypto");
 
 const prisma = require("../../config/prisma");
 const { hashKycToken } = require("../kyc-link/kycLink.utils");
+const { validateDocumentFile } = require("../../utils/fileValidation.util");
+const {
+  UPLOAD_ROOT,
+  generateStoredName,
+  hashFile,
+  moveIntoPlace,
+  removeQuietly,
+  cleanupRequestFiles
+} = require("../../utils/fileStorage.util");
+const { runAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
 
 const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
 
@@ -14,20 +22,6 @@ function isResubmissionMode(kyc) {
   );
 }
 
-function getUploadRoot() {
-  return path.join(process.cwd(), "uploads", "kyc-documents");
-}
-
-function safeFileName(name = "file") {
-  const ext = path.extname(name);
-  const base = path
-    .basename(name, ext)
-    .replace(/[^a-zA-Z0-9-_]/g, "-")
-    .slice(0, 40);
-
-  return `${base || "file"}${ext}`;
-}
-
 function getFilesFromRequest(files = {}) {
   const result = [];
 
@@ -35,10 +29,7 @@ function getFilesFromRequest(files = {}) {
     const slotFiles = files[slot] || [];
 
     for (const file of slotFiles) {
-      result.push({
-        slot,
-        file
-      });
+      result.push({ slot, file });
     }
   }
 
@@ -49,16 +40,10 @@ function getRequiredSlots(inputMode) {
   switch (inputMode) {
     case "live_photo_front":
       return ["front"];
-
     case "live_photo_front_back":
       return ["front", "back"];
-
     case "upload":
-      return ["document"];
-
     case "upload_or_live_photo":
-      return ["document"];
-
     default:
       return ["document"];
   }
@@ -68,16 +53,12 @@ function getAllowedSlots(inputMode) {
   switch (inputMode) {
     case "live_photo_front":
       return ["front", "document"];
-
     case "live_photo_front_back":
       return ["front", "back"];
-
     case "upload":
       return ["document"];
-
     case "upload_or_live_photo":
       return ["document", "front"];
-
     default:
       return ["document"];
   }
@@ -90,9 +71,7 @@ async function getActiveKycByToken(rawToken) {
     where: { tokenHash },
     include: {
       kyc: {
-        include: {
-          consent: true
-        }
+        include: { consent: true }
       }
     }
   });
@@ -147,93 +126,118 @@ async function getActiveKycByToken(rawToken) {
     };
   }
 
-  return {
-    success: true,
-    link,
-    kyc: link.kyc
-  };
+  return { success: true, link, kyc: link.kyc };
 }
 
-async function getDocumentRequirementsForKyc(kyc) {
-  if (isResubmissionMode(kyc)) {
-    const failedSubmissions = await prisma.kycDocumentSubmission.findMany({
-      where: {
-        kycId: kyc.id,
-        resubmissionRequestedAt: {
-          not: null
-        },
-        status: {
-          in: ["resubmission_required", "draft_saved", "submitted"]
-        }
-      },
-      include: {
-        requirement: true
-      },
-      orderBy: {
-        createdAt: "asc"
-      }
-    });
+/**
+ * Legacy fallback: KYCs created before checklist snapshotting have no
+ * submission rows until first save. Snapshot them now.
+ */
+async function ensureSnapshotExists(kyc) {
+  const count = await prisma.kycDocumentSubmission.count({
+    where: { kycId: kyc.id }
+  });
 
-    return failedSubmissions
-      .map((submission) => submission.requirement)
-      .filter(Boolean);
-  }
+  if (count > 0) return;
 
   const entityType = await prisma.entityType.findUnique({
-    where: {
-      key: kyc.entityType
-    },
+    where: { key: kyc.entityType },
     include: {
       requirements: {
-        where: {
-          isActive: true,
-          inputMode: {
-            not: "live_video"
-          }
-        },
-        orderBy: {
-          sortOrder: "asc"
-        }
+        where: { isActive: true, inputMode: { not: "live_video" } },
+        orderBy: { sortOrder: "asc" }
       }
     }
   });
 
-  return entityType?.requirements || [];
+  for (const requirement of entityType?.requirements || []) {
+    await prisma.kycDocumentSubmission.create({
+      data: {
+        kycId: kyc.id,
+        requirementId: requirement.id,
+        documentKey: requirement.documentKey,
+        documentName: requirement.documentName,
+        inputMode: requirement.inputMode,
+        isRequired: requirement.isRequired,
+        needsFront: requirement.needsFront,
+        needsBack: requirement.needsBack,
+        ocrEnabled: requirement.ocrEnabled,
+        sortOrder: requirement.sortOrder,
+        status: "not_started"
+      }
+    });
+  }
 }
 
-function formatCurrentFiles(files = []) {
+/**
+ * The buyer's checklist comes from the snapshotted submission rows —
+ * admin edits to DocumentRequirement never change an in-flight KYC.
+ */
+async function getSubmissionStepsForKyc(kyc) {
+  await ensureSnapshotExists(kyc);
+
+  if (isResubmissionMode(kyc)) {
+    return prisma.kycDocumentSubmission.findMany({
+      where: {
+        kycId: kyc.id,
+        resubmissionRequestedAt: { not: null },
+        status: { in: ["resubmission_required", "draft_saved", "submitted"] }
+      },
+      include: {
+        files: {
+          where: { isCurrent: true },
+          orderBy: { uploadedAt: "desc" }
+        }
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
+    });
+  }
+
+  return prisma.kycDocumentSubmission.findMany({
+    where: { kycId: kyc.id },
+    include: {
+      files: {
+        where: { isCurrent: true },
+        orderBy: { uploadedAt: "desc" }
+      }
+    },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
+  });
+}
+
+function formatCurrentFiles(files = [], rawToken = null) {
   return files.map((file) => ({
     id: file.id,
     fileSlot: file.fileSlot,
     originalName: file.originalName,
     mimeType: file.mimeType,
     sizeBytes: file.sizeBytes,
-    publicPath: file.publicPath,
     version: file.version,
-    uploadedAt: file.uploadedAt
+    uploadedAt: file.uploadedAt,
+    fileUrl: rawToken ? `/api/public/kyc/${rawToken}/files/${file.id}` : null
   }));
 }
 
-function formatStep(requirement, submission) {
-  const currentFiles = submission?.files || [];
-
+function formatStep(submission, rawToken) {
   return {
-    requirementId: requirement.id,
-    documentKey: requirement.documentKey,
-    documentName: requirement.documentName,
-    inputMode: requirement.inputMode,
-    isRequired: requirement.isRequired,
-    needsFront: requirement.needsFront,
-    needsBack: requirement.needsBack,
-    ocrEnabled: requirement.ocrEnabled,
-    sortOrder: requirement.sortOrder,
-    status: submission?.status || "not_started",
-    notes: submission?.notes || "",
-    saveCount: submission?.saveCount || 0,
-    currentVersion: submission?.currentVersion || 0,
-    lastSavedAt: submission?.lastSavedAt || null,
-    submittedAt: submission?.submittedAt || null,
-    currentFiles: formatCurrentFiles(currentFiles)
+    requirementId: submission.requirementId,
+    submissionId: submission.id,
+    documentKey: submission.documentKey,
+    documentName: submission.documentName,
+    inputMode: submission.inputMode,
+    isRequired: submission.isRequired,
+    needsFront: submission.needsFront,
+    needsBack: submission.needsBack,
+    ocrEnabled: submission.ocrEnabled,
+    sortOrder: submission.sortOrder,
+    status: submission.status,
+    notes: submission.notes || "",
+    reviewerRemarks: submission.reviewerRemarks || null,
+    saveCount: submission.saveCount,
+    currentVersion: submission.currentVersion,
+    lastSavedAt: submission.lastSavedAt,
+    submittedAt: submission.submittedAt,
+    currentFiles: formatCurrentFiles(submission.files || [], rawToken)
   };
 }
 
@@ -244,40 +248,15 @@ async function getDocumentWorkspace(rawToken) {
 
   const { kyc } = auth;
 
-  const requirements = await getDocumentRequirementsForKyc(kyc);
-
-  const submissions = await prisma.kycDocumentSubmission.findMany({
-    where: {
-      kycId: kyc.id
-    },
-    include: {
-      files: {
-        where: {
-          isCurrent: true
-        },
-        orderBy: {
-          uploadedAt: "desc"
-        }
-      }
-    }
-  });
-
-  const submissionMap = new Map(
-    submissions.map((submission) => [submission.requirementId, submission])
-  );
-
-  const steps = requirements.map((requirement) =>
-    formatStep(requirement, submissionMap.get(requirement.id))
-  );
+  const submissions = await getSubmissionStepsForKyc(kyc);
+  const steps = submissions.map((submission) => formatStep(submission, rawToken));
 
   const completedSteps = steps.filter((step) =>
     ["draft_saved", "skipped", "submitted", "accepted"].includes(step.status)
   ).length;
 
   let progress = await prisma.kycDocumentProgress.findUnique({
-    where: {
-      kycId: kyc.id
-    }
+    where: { kycId: kyc.id }
   });
 
   if (!progress) {
@@ -296,9 +275,7 @@ async function getDocumentWorkspace(rawToken) {
     });
   } else {
     progress = await prisma.kycDocumentProgress.update({
-      where: {
-        kycId: kyc.id
-      },
+      where: { kycId: kyc.id },
       data: {
         totalSteps: steps.length,
         completedSteps
@@ -325,64 +302,48 @@ async function getDocumentWorkspace(rawToken) {
   };
 }
 
-async function saveUploadedFiles({
-  kycId,
-  submissionId,
-  version,
-  incomingFiles,
-  requestMeta
-}) {
-  const createdFiles = [];
-
-  const uploadFolder = path.join(
-    getUploadRoot(),
-    kycId,
-    submissionId,
-    `v${version}`
-  );
-
-  fs.mkdirSync(uploadFolder, { recursive: true });
-
+/**
+ * Validates magic bytes + hashes each uploaded temp file.
+ * Returns { success } | { success: false, ... } and enriches items.
+ */
+async function validateIncomingFiles(incomingFiles) {
   for (const item of incomingFiles) {
-    const originalName = item.file.originalname;
-    const storedName = `${Date.now()}-${crypto.randomUUID()}-${safeFileName(
-      originalName
-    )}`;
+    const validation = validateDocumentFile(item.file.path);
 
-    const storagePath = path.join(uploadFolder, storedName);
+    if (!validation.isValid) {
+      return {
+        success: false,
+        statusCode: 400,
+        code: "INVALID_FILE_CONTENT",
+        message: `${item.file.originalname} is not a valid JPG, PNG, WEBP, or PDF file. File content does not match its type.`
+      };
+    }
 
-    fs.writeFileSync(storagePath, item.file.buffer);
-
-    const relativePath = `/uploads/kyc-documents/${kycId}/${submissionId}/v${version}/${storedName}`;
-
-    const created = await prisma.kycDocumentFile.create({
-      data: {
-        submissionId,
-        kycId,
-        fileSlot: item.slot,
-        originalName,
-        storedName,
-        mimeType: item.file.mimetype,
-        sizeBytes: item.file.size,
-        storagePath,
-        publicPath: relativePath,
-        version,
-        isCurrent: true,
-        ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null,
-        metadata: {
-          source: "buyer_document_upload"
-        }
-      }
-    });
-
-    createdFiles.push(created);
+    item.detectedType = validation.detectedType;
+    item.fileHash = await hashFile(item.file.path);
   }
 
-  return createdFiles;
+  return { success: true };
 }
 
 async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, requestMeta = {}) {
+  const incomingFiles = getFilesFromRequest(files);
+
+  try {
+    return await saveDocumentStepInner(
+      rawToken,
+      requirementId,
+      body,
+      incomingFiles,
+      requestMeta
+    );
+  } finally {
+    // Whatever happened, temp files must not pile up.
+    await cleanupRequestFiles(files);
+  }
+}
+
+async function saveDocumentStepInner(rawToken, requirementId, body, incomingFiles, requestMeta) {
   const auth = await getActiveKycByToken(rawToken);
 
   if (!auth.success) return auth;
@@ -390,12 +351,10 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
   const { kyc } = auth;
 
   const progress = await prisma.kycDocumentProgress.findUnique({
-    where: {
-      kycId: kyc.id
-    }
+    where: { kycId: kyc.id }
   });
 
-  if (progress?.isFinalSubmitted) {
+  if (progress?.isFinalSubmitted && !isResubmissionMode(kyc)) {
     return {
       success: false,
       statusCode: 409,
@@ -404,15 +363,15 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
     };
   }
 
-  const requirements = await getDocumentRequirementsForKyc(kyc);
+  const submissions = await getSubmissionStepsForKyc(kyc);
 
-  const requirementIndex = requirements.findIndex(
-    (item) => item.id === requirementId
+  const submissionIndex = submissions.findIndex(
+    (item) => item.requirementId === requirementId
   );
 
-  const requirement = requirements[requirementIndex];
+  const submission = submissions[submissionIndex];
 
-  if (!requirement) {
+  if (!submission) {
     return {
       success: false,
       statusCode: 404,
@@ -423,7 +382,7 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
 
   const skipOptional = body.skipOptional === "true" || body.skipOptional === true;
 
-  if (skipOptional && requirement.isRequired) {
+  if (skipOptional && submission.isRequired) {
     return {
       success: false,
       statusCode: 400,
@@ -432,9 +391,7 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
     };
   }
 
-  const incomingFiles = getFilesFromRequest(files);
-
-  const allowedSlots = getAllowedSlots(requirement.inputMode);
+  const allowedSlots = getAllowedSlots(submission.inputMode);
 
   const invalidSlot = incomingFiles.find(
     (item) => !allowedSlots.includes(item.slot)
@@ -445,26 +402,9 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
       success: false,
       statusCode: 400,
       code: "INVALID_FILE_SLOT",
-      message: `${invalidSlot.slot} file is not allowed for ${requirement.documentName}.`
+      message: `${invalidSlot.slot} file is not allowed for ${submission.documentName}.`
     };
   }
-
-  const existingSubmissionWithFiles =
-    await prisma.kycDocumentSubmission.findUnique({
-      where: {
-        kycId_requirementId: {
-          kycId: kyc.id,
-          requirementId: requirement.id
-        }
-      },
-      include: {
-        files: {
-          where: {
-            isCurrent: true
-          }
-        }
-      }
-    });
 
   const resubmissionMode = isResubmissionMode(kyc);
 
@@ -474,20 +414,12 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
         success: false,
         statusCode: 400,
         code: "SKIP_NOT_ALLOWED_IN_RESUBMISSION",
-        message: "Please upload the corrected document. Skipping is not allowed during resubmission."
+        message:
+          "Please upload the corrected document. Skipping is not allowed during resubmission."
       };
     }
 
-    if (!existingSubmissionWithFiles) {
-      return {
-        success: false,
-        statusCode: 403,
-        code: "DOCUMENT_NOT_PART_OF_RESUBMISSION",
-        message: "This document is not part of the current resubmission request."
-      };
-    }
-
-    if (!existingSubmissionWithFiles.resubmissionRequestedAt) {
+    if (!submission.resubmissionRequestedAt) {
       return {
         success: false,
         statusCode: 403,
@@ -495,31 +427,16 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
         message: "This document is already accepted or not requested for correction."
       };
     }
-
-    if (
-      !["resubmission_required", "draft_saved", "submitted"].includes(
-        existingSubmissionWithFiles.status
-      )
-    ) {
-      return {
-        success: false,
-        statusCode: 403,
-        code: "DOCUMENT_NOT_EDITABLE",
-        message: `This document is currently ${existingSubmissionWithFiles.status} and cannot be edited.`
-      };
-    }
   }
 
   const existingSlots = new Set(
-    existingSubmissionWithFiles?.files?.map((file) => file.fileSlot) || []
+    (submission.files || []).map((file) => file.fileSlot)
   );
-
   const incomingSlots = new Set(incomingFiles.map((item) => item.slot));
-
   const combinedSlots = new Set([...existingSlots, ...incomingSlots]);
 
   if (!skipOptional) {
-    const requiredSlots = getRequiredSlots(requirement.inputMode);
+    const requiredSlots = getRequiredSlots(submission.inputMode);
 
     const missingSlots = requiredSlots.filter(
       (slot) => !combinedSlots.has(slot)
@@ -538,152 +455,170 @@ async function saveDocumentStep(rawToken, requirementId, body = {}, files = {}, 
 
   const isReplacingFiles = !skipOptional && incomingFiles.length > 0;
 
-  const result = await prisma.$transaction(async (tx) => {
-    let submission = await tx.kycDocumentSubmission.findUnique({
-      where: {
-        kycId_requirementId: {
-          kycId: kyc.id,
-          requirementId: requirement.id
-        }
-      }
-    });
+  // Content validation BEFORE anything is persisted.
+  if (isReplacingFiles) {
+    const validation = await validateIncomingFiles(incomingFiles);
+    if (!validation.success) return validation;
+  }
 
-    if (!submission) {
-      submission = await tx.kycDocumentSubmission.create({
-        data: {
-          kycId: kyc.id,
-          requirementId: requirement.id,
-          documentKey: requirement.documentKey,
-          documentName: requirement.documentName,
-          inputMode: requirement.inputMode,
-          isRequired: requirement.isRequired,
-          status: "not_started"
-        }
-      });
-    }
+  const nextVersion = isReplacingFiles
+    ? submission.currentVersion + 1
+    : submission.currentVersion;
 
-    const nextVersion = skipOptional
-      ? submission.currentVersion
-      : isReplacingFiles
-        ? submission.currentVersion + 1
-        : submission.currentVersion;
-
-    if (isReplacingFiles) {
-      await tx.kycDocumentFile.updateMany({
-        where: {
-          submissionId: submission.id,
-          isCurrent: true
-        },
-        data: {
-          isCurrent: false
-        }
-      });
-    }
-
-    const updatedSubmission = await tx.kycDocumentSubmission.update({
-      where: {
-        id: submission.id
-      },
-      data: {
-        status: skipOptional ? "skipped" : "draft_saved",
-        notes: body.notes || null,
-        saveCount: {
-          increment: isReplacingFiles ? 1 : 0
-        },
-        currentVersion: nextVersion,
-        lastSavedAt: new Date(),
-
-        reviewedBy: resubmissionMode ? null : submission.reviewedBy,
-        reviewedAt: resubmissionMode ? null : submission.reviewedAt,
-        acceptedAt: resubmissionMode ? null : submission.acceptedAt,
-        rejectedAt: resubmissionMode ? null : submission.rejectedAt
-      }
-    });
-
-    const nextStepIndex = Math.min(requirementIndex + 1, requirements.length - 1);
-    const nextRequirement = requirements[nextStepIndex];
-
-    await tx.kycDocumentProgress.upsert({
-      where: {
-        kycId: kyc.id
-      },
-      update: {
-        currentStepIndex: nextStepIndex,
-        currentRequirementId: nextRequirement?.id || requirement.id,
-        currentDocumentKey: nextRequirement?.documentKey || requirement.documentKey,
-        totalSteps: requirements.length,
-        lastAction: skipOptional
-          ? "optional_document_skipped"
-          : isReplacingFiles
-            ? "document_draft_saved"
-            : "document_step_continued_without_file_change"
-      },
-      create: {
-        kycId: kyc.id,
-        currentStepIndex: nextStepIndex,
-        currentRequirementId: nextRequirement?.id || requirement.id,
-        currentDocumentKey: nextRequirement?.documentKey || requirement.documentKey,
-        totalSteps: requirements.length,
-        lastAction: skipOptional
-          ? "optional_document_skipped"
-          : isReplacingFiles
-            ? "document_draft_saved"
-            : "document_step_continued_without_file_change"
-      }
-    });
-
-    await tx.kycMaster.update({
-      where: {
-        id: kyc.id
-      },
-      data: resubmissionMode
-        ? {
-            overallStatus: "resubmission_required",
-            currentStage: "resubmission_document_upload_in_progress"
-          }
-        : {
-            overallStatus: "in_progress",
-            currentStage: "document_upload_in_progress"
-          }
-    });
-
-    await tx.kycAuditLog.create({
-      data: {
-        kycId: kyc.id,
-        actorType: "buyer",
-        action: resubmissionMode
-          ? isReplacingFiles
-            ? "kyc_resubmission_document_saved"
-            : "kyc_resubmission_document_next_without_changes"
-          : skipOptional
-            ? "kyc_optional_document_skipped"
-            : isReplacingFiles
-              ? "kyc_document_saved"
-              : "kyc_document_next_without_changes",
-        ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null,
-        metadata: {
-          requirementId: requirement.id,
-          documentKey: requirement.documentKey,
-          documentName: requirement.documentName,
-          version: nextVersion,
-          fileCount: incomingFiles.length,
-          reusedExistingFile: !isReplacingFiles
-        }
-      }
-    });
-
-    return updatedSubmission;
-  });
+  // Move files into their final folder BEFORE the DB transaction, so a
+  // crash leaves orphan files (harmless) instead of DB rows without files.
+  const movedFiles = [];
 
   if (isReplacingFiles) {
-    await saveUploadedFiles({
-      kycId: kyc.id,
-      submissionId: result.id,
-      version: result.currentVersion,
-      incomingFiles,
-      requestMeta
+    const finalDir = path.join(
+      UPLOAD_ROOT,
+      "kyc-documents",
+      kyc.id,
+      submission.id,
+      `v${nextVersion}`
+    );
+
+    for (const item of incomingFiles) {
+      const storedName = generateStoredName(item.file.originalname);
+      const finalPath = await moveIntoPlace(item.file.path, finalDir, storedName);
+
+      movedFiles.push({
+        slot: item.slot,
+        originalName: item.file.originalname,
+        storedName,
+        mimeType: item.detectedType || item.file.mimetype,
+        sizeBytes: item.file.size,
+        storagePath: finalPath,
+        fileHash: item.fileHash
+      });
+    }
+  }
+
+  let result;
+
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      if (isReplacingFiles) {
+        await tx.kycDocumentFile.updateMany({
+          where: {
+            submissionId: submission.id,
+            isCurrent: true
+          },
+          data: { isCurrent: false }
+        });
+
+        for (const moved of movedFiles) {
+          await tx.kycDocumentFile.create({
+            data: {
+              submissionId: submission.id,
+              kycId: kyc.id,
+              fileSlot: moved.slot,
+              originalName: moved.originalName,
+              storedName: moved.storedName,
+              mimeType: moved.mimeType,
+              sizeBytes: moved.sizeBytes,
+              fileHash: moved.fileHash,
+              storagePath: moved.storagePath,
+              publicPath: null,
+              version: nextVersion,
+              isCurrent: true,
+              ipAddress: requestMeta.ipAddress || null,
+              userAgent: requestMeta.userAgent || null,
+              metadata: { source: "buyer_document_upload" }
+            }
+          });
+        }
+      }
+
+      const updatedSubmission = await tx.kycDocumentSubmission.update({
+        where: { id: submission.id },
+        data: {
+          status: skipOptional ? "skipped" : "draft_saved",
+          notes: body.notes || null,
+          saveCount: { increment: isReplacingFiles ? 1 : 0 },
+          currentVersion: nextVersion,
+          lastSavedAt: new Date(),
+
+          reviewedBy: resubmissionMode ? null : submission.reviewedBy,
+          reviewedAt: resubmissionMode ? null : submission.reviewedAt,
+          acceptedAt: resubmissionMode ? null : submission.acceptedAt,
+          rejectedAt: resubmissionMode ? null : submission.rejectedAt
+        }
+      });
+
+      const nextStepIndex = Math.min(submissionIndex + 1, submissions.length - 1);
+      const nextSubmission = submissions[nextStepIndex];
+
+      const lastAction = skipOptional
+        ? "optional_document_skipped"
+        : isReplacingFiles
+          ? "document_draft_saved"
+          : "document_step_continued_without_file_change";
+
+      await tx.kycDocumentProgress.upsert({
+        where: { kycId: kyc.id },
+        update: {
+          currentStepIndex: nextStepIndex,
+          currentRequirementId: nextSubmission?.requirementId || submission.requirementId,
+          currentDocumentKey: nextSubmission?.documentKey || submission.documentKey,
+          totalSteps: submissions.length,
+          lastAction
+        },
+        create: {
+          kycId: kyc.id,
+          currentStepIndex: nextStepIndex,
+          currentRequirementId: nextSubmission?.requirementId || submission.requirementId,
+          currentDocumentKey: nextSubmission?.documentKey || submission.documentKey,
+          totalSteps: submissions.length,
+          lastAction
+        }
+      });
+
+      await tx.kycMaster.update({
+        where: { id: kyc.id },
+        data: resubmissionMode
+          ? {
+              overallStatus: "resubmission_required",
+              currentStage: "resubmission_document_upload_in_progress"
+            }
+          : {
+              overallStatus: "in_progress",
+              currentStage: "document_upload_in_progress"
+            }
+      });
+
+      await tx.kycAuditLog.create({
+        data: {
+          kycId: kyc.id,
+          actorType: "buyer",
+          action: resubmissionMode
+            ? isReplacingFiles
+              ? "kyc_resubmission_document_saved"
+              : "kyc_resubmission_document_next_without_changes"
+            : skipOptional
+              ? "kyc_optional_document_skipped"
+              : isReplacingFiles
+                ? "kyc_document_saved"
+                : "kyc_document_next_without_changes",
+          ipAddress: requestMeta.ipAddress || null,
+          userAgent: requestMeta.userAgent || null,
+          metadata: {
+            requirementId: submission.requirementId,
+            documentKey: submission.documentKey,
+            documentName: submission.documentName,
+            version: nextVersion,
+            fileCount: incomingFiles.length,
+            reusedExistingFile: !isReplacingFiles
+          }
+        }
+      });
+
+      return updatedSubmission;
     });
+  } catch (error) {
+    // DB failed after files moved — remove the orphans, then rethrow.
+    await Promise.all(movedFiles.map((moved) => removeQuietly(moved.storagePath)));
+    throw error;
   }
 
   return getDocumentWorkspace(rawToken);
@@ -695,47 +630,31 @@ async function updateDocumentProgress(rawToken, payload = {}, requestMeta = {}) 
   if (!auth.success) return auth;
 
   const { kyc } = auth;
-  const requirements = await getDocumentRequirementsForKyc(kyc);
+  const submissions = await getSubmissionStepsForKyc(kyc);
 
   const nextIndex = Math.max(
     0,
-    Math.min(Number(payload.currentStepIndex || 0), requirements.length - 1)
+    Math.min(Number(payload.currentStepIndex || 0), submissions.length - 1)
   );
 
-  const currentRequirement = requirements[nextIndex];
+  const current = submissions[nextIndex];
 
   const progress = await prisma.kycDocumentProgress.upsert({
-    where: {
-      kycId: kyc.id
-    },
+    where: { kycId: kyc.id },
     update: {
       currentStepIndex: nextIndex,
-      currentRequirementId: currentRequirement?.id || null,
-      currentDocumentKey: currentRequirement?.documentKey || null,
-      totalSteps: requirements.length,
+      currentRequirementId: current?.requirementId || null,
+      currentDocumentKey: current?.documentKey || null,
+      totalSteps: submissions.length,
       lastAction: "document_step_changed"
     },
     create: {
       kycId: kyc.id,
       currentStepIndex: nextIndex,
-      currentRequirementId: currentRequirement?.id || null,
-      currentDocumentKey: currentRequirement?.documentKey || null,
-      totalSteps: requirements.length,
+      currentRequirementId: current?.requirementId || null,
+      currentDocumentKey: current?.documentKey || null,
+      totalSteps: submissions.length,
       lastAction: "document_step_changed"
-    }
-  });
-
-  await prisma.kycAuditLog.create({
-    data: {
-      kycId: kyc.id,
-      actorType: "buyer",
-      action: "kyc_document_step_changed",
-      ipAddress: requestMeta.ipAddress || null,
-      userAgent: requestMeta.userAgent || null,
-      metadata: {
-        currentStepIndex: nextIndex,
-        documentKey: currentRequirement?.documentKey || null
-      }
     }
   });
 
@@ -768,9 +687,7 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
   const resubmissionMode = kyc.isResubmissionMode;
 
   const progress = await prisma.kycDocumentProgress.findUnique({
-    where: {
-      kycId: kyc.kycId
-    }
+    where: { kycId: kyc.kycId }
   });
 
   if (progress?.isFinalSubmitted) {
@@ -800,12 +717,12 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // Only drafts become submitted — skipped optionals STAY skipped so the
+    // reviewer never sees a file-less "submitted" document.
     await tx.kycDocumentSubmission.updateMany({
       where: {
         kycId: kyc.kycId,
-        status: {
-          in: ["draft_saved", "skipped"]
-        }
+        status: "draft_saved"
       },
       data: {
         status: "submitted",
@@ -814,9 +731,7 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
     });
 
     const updatedProgress = await tx.kycDocumentProgress.update({
-      where: {
-        kycId: kyc.kycId
-      },
+      where: { kycId: kyc.kycId },
       data: {
         isFinalSubmitted: true,
         finalSubmittedAt: new Date(),
@@ -839,9 +754,7 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
 
     if (resubmissionMode) {
       const videoDeclaration = await tx.kycVideoDeclaration.findUnique({
-        where: {
-          kycId: kyc.kycId
-        }
+        where: { kycId: kyc.kycId }
       });
 
       const videoStillNeedsCorrection =
@@ -859,9 +772,7 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
     }
 
     const updatedKyc = await tx.kycMaster.update({
-      where: {
-        id: kyc.kycId
-      },
+      where: { id: kyc.kycId },
       data: nextKycState
     });
 
@@ -883,11 +794,15 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
       }
     });
 
-    return {
-      updatedKyc,
-      updatedProgress
-    };
+    return { updatedKyc, updatedProgress };
   });
+
+  // Resubmission went straight back to "submitted" — refresh auto-checks.
+  if (result.updatedKyc.overallStatus === "submitted") {
+    runAutoChecksForKyc(kyc.kycId).catch((error) =>
+      console.error("[auto-checks] failed:", error.message)
+    );
+  }
 
   return {
     success: true,
@@ -904,23 +819,17 @@ async function finalSubmitDocuments(rawToken, requestMeta = {}) {
 async function getDevDocumentSubmissions() {
   return prisma.kycDocumentSubmission.findMany({
     include: {
-      files: {
-        orderBy: {
-          uploadedAt: "desc"
-        }
-      }
+      files: { orderBy: { uploadedAt: "desc" } }
     },
-    orderBy: {
-      updatedAt: "desc"
-    }
+    orderBy: { updatedAt: "desc" },
+    take: 100
   });
 }
 
 async function getDevDocumentProgress() {
   return prisma.kycDocumentProgress.findMany({
-    orderBy: {
-      updatedAt: "desc"
-    }
+    orderBy: { updatedAt: "desc" },
+    take: 100
   });
 }
 

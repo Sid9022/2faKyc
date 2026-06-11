@@ -1,9 +1,16 @@
-const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
 const prisma = require("../../config/prisma");
 const { hashKycToken } = require("../kyc-link/kycLink.utils");
+const { validateVideoFile } = require("../../utils/fileValidation.util");
+const {
+  UPLOAD_ROOT,
+  generateStoredName,
+  moveIntoPlace,
+  removeQuietly
+} = require("../../utils/fileStorage.util");
+const { runAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
 
 const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
 
@@ -11,26 +18,13 @@ function isResubmissionMode(kyc) {
   return (
     kyc.overallStatus === "resubmission_required" ||
     kyc.currentStage === "resubmission_required" ||
-    kyc.currentStage === "resubmission_document_upload_in_progress"
+    kyc.currentStage === "resubmission_document_upload_in_progress" ||
+    kyc.currentStage === "resubmission_video_pending"
   );
 }
 
 function generateRuntimeCode() {
   return String(crypto.randomInt(100000, 999999));
-}
-
-function getUploadRoot() {
-  return path.join(process.cwd(), "uploads", "kyc-videos");
-}
-
-function safeFileName(name = "video.webm") {
-  const ext = path.extname(name) || ".webm";
-  const base = path
-    .basename(name, ext)
-    .replace(/[^a-zA-Z0-9-_]/g, "-")
-    .slice(0, 40);
-
-  return `${base || "video"}${ext}`;
 }
 
 function normalizeLanguage(language) {
@@ -125,11 +119,7 @@ async function getActiveKycByToken(rawToken) {
     };
   }
 
-  return {
-    success: true,
-    link,
-    kyc: link.kyc
-  };
+  return { success: true, link, kyc: link.kyc };
 }
 
 function validateStartPayload(payload = {}) {
@@ -180,9 +170,7 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
   }
 
   const existing = await prisma.kycVideoDeclaration.findUnique({
-    where: {
-      kycId: kyc.id
-    }
+    where: { kycId: kyc.id }
   });
 
   if (existing?.status === "accepted") {
@@ -206,7 +194,10 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
   if (
     isResubmissionMode(kyc) &&
     existing &&
-    !["resubmission_required", "session_started"].includes(existing.status)
+    !(
+      existing.resubmissionRequestedAt &&
+      ["resubmission_required", "session_started"].includes(existing.status)
+    )
   ) {
     return {
       success: false,
@@ -228,9 +219,7 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
 
   const declaration = await prisma.$transaction(async (tx) => {
     const saved = await tx.kycVideoDeclaration.upsert({
-      where: {
-        kycId: kyc.id
-      },
+      where: { kycId: kyc.id },
       update: {
         declarantFullName: validation.data.declarantFullName,
         declarantRole: validation.data.declarantRole,
@@ -270,9 +259,7 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
     const isResubmission = isResubmissionMode(kyc);
 
     await tx.kycMaster.update({
-      where: {
-        id: kyc.id
-      },
+      where: { id: kyc.id },
       data: isResubmission
         ? {
             overallStatus: "resubmission_required",
@@ -315,15 +302,12 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
 
 function parseFaceMetadata(raw) {
   if (!raw) return null;
-
   if (typeof raw === "object") return raw;
 
   try {
     return JSON.parse(raw);
   } catch {
-    return {
-      raw
-    };
+    return { raw };
   }
 }
 
@@ -333,11 +317,20 @@ function parseBoolean(value) {
 
 function parseNumber(value) {
   const number = Number(value);
-
   return Number.isFinite(number) ? number : null;
 }
 
 async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {}) {
+  try {
+    return await uploadVideoDeclarationInner(rawToken, body, file, requestMeta);
+  } finally {
+    // moveIntoPlace renames the temp file on success; this only removes
+    // leftovers from early-return validation failures.
+    if (file?.path) await removeQuietly(file.path);
+  }
+}
+
+async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
   const auth = await getActiveKycByToken(rawToken);
 
   if (!auth.success) return auth;
@@ -354,9 +347,7 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
   }
 
   const declaration = await prisma.kycVideoDeclaration.findUnique({
-    where: {
-      kycId: kyc.id
-    }
+    where: { kycId: kyc.id }
   });
 
   if (!declaration) {
@@ -388,6 +379,21 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
     };
   }
 
+  // A video that was never flagged for correction cannot be replaced
+  // during a documents-only resubmission cycle.
+  if (
+    resubmissionMode &&
+    declaration.status === "submitted" &&
+    !declaration.resubmissionRequestedAt
+  ) {
+    return {
+      success: false,
+      statusCode: 403,
+      code: "VIDEO_NOT_REQUESTED_FOR_RESUBMISSION",
+      message: "Video declaration is not requested for resubmission."
+    };
+  }
+
   const faceCheckPassed = parseBoolean(body.faceCheckPassed);
   const faceQualityMetadata = parseFaceMetadata(body.faceQualityMetadata);
   const durationSeconds = parseNumber(body.durationSeconds);
@@ -401,116 +407,128 @@ async function uploadVideoDeclaration(rawToken, body = {}, file, requestMeta = {
     };
   }
 
+  // Verify the uploaded bytes really are a video container.
+  const validation = validateVideoFile(file.path);
+
+  if (!validation.isValid) {
+    return {
+      success: false,
+      statusCode: 400,
+      code: "INVALID_VIDEO_CONTENT",
+      message: "Uploaded file is not a valid WEBM/MP4/MOV video."
+    };
+  }
+
   const nextAttemptNumber = declaration.attemptCount + 1;
 
-  const uploadFolder = path.join(
-    getUploadRoot(),
+  const finalDir = path.join(
+    UPLOAD_ROOT,
+    "kyc-videos",
     kyc.id,
     declaration.id,
     `attempt-${nextAttemptNumber}`
   );
 
-  fs.mkdirSync(uploadFolder, { recursive: true });
-
   const originalName = file.originalname || "video.webm";
-  const storedName = `${Date.now()}-${crypto.randomUUID()}-${safeFileName(
-    originalName
-  )}`;
+  const storedName = generateStoredName(originalName);
+  const storagePath = await moveIntoPlace(file.path, finalDir, storedName);
 
-  const storagePath = path.join(uploadFolder, storedName);
+  let result;
 
-  fs.writeFileSync(storagePath, file.buffer);
-
-  const publicPath = `/uploads/kyc-videos/${kyc.id}/${declaration.id}/attempt-${nextAttemptNumber}/${storedName}`;
-
-  const result = await prisma.$transaction(async (tx) => {
-    const attempt = await tx.kycVideoAttempt.create({
-      data: {
-        declarationId: declaration.id,
-        kycId: kyc.id,
-        status: "submitted",
-        originalName,
-        storedName,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
-        storagePath,
-        publicPath,
-        durationSeconds,
-        faceCheckPassed,
-        faceQualityMetadata,
-        ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null,
-        submittedAt: new Date()
-      }
-    });
-
-    const updatedDeclaration = await tx.kycVideoDeclaration.update({
-      where: {
-        id: declaration.id
-      },
-      data: {
-        status: "submitted",
-        attemptCount: {
-          increment: 1
-        },
-        currentAttemptId: attempt.id,
-        faceCheckPassed,
-        faceQualityMetadata,
-        reviewedBy: null,
-        reviewedAt: null,
-        submittedAt: new Date()
-      }
-    });
-
-    const updatedKyc = await tx.kycMaster.update({
-      where: {
-        id: kyc.id
-      },
-      data: {
-        overallStatus: "submitted",
-        currentStage: resubmissionMode
-          ? "resubmission_submitted"
-          : "buyer_submission_completed"
-      }
-    });
-
-    await tx.kycAuditLog.create({
-      data: {
-        kycId: kyc.id,
-        actorType: "buyer",
-        action: resubmissionMode
-          ? "video_declaration_resubmitted"
-          : "video_declaration_submitted",
-        oldStatus: kyc.overallStatus,
-        newStatus: "submitted",
-        ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null,
-        metadata: {
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const attempt = await tx.kycVideoAttempt.create({
+        data: {
           declarationId: declaration.id,
-          attemptId: attempt.id,
-          faceCheckPassed,
+          kycId: kyc.id,
+          status: "submitted",
+          originalName,
+          storedName,
+          mimeType: validation.detectedType || file.mimetype,
+          sizeBytes: file.size,
+          storagePath,
+          publicPath: null,
           durationSeconds,
+          faceCheckPassed,
+          faceQualityMetadata,
+          ipAddress: requestMeta.ipAddress || null,
+          userAgent: requestMeta.userAgent || null,
+          submittedAt: new Date()
+        }
+      });
+
+      const updatedDeclaration = await tx.kycVideoDeclaration.update({
+        where: { id: declaration.id },
+        data: {
+          status: "submitted",
+          attemptCount: { increment: 1 },
+          currentAttemptId: attempt.id,
+          faceCheckPassed,
+          faceQualityMetadata,
+          reviewedBy: null,
+          reviewedAt: null,
+          submittedAt: new Date()
+        }
+      });
+
+      const updatedKyc = await tx.kycMaster.update({
+        where: { id: kyc.id },
+        data: {
+          overallStatus: "submitted",
           currentStage: resubmissionMode
             ? "resubmission_submitted"
             : "buyer_submission_completed"
         }
-      }
-    });
+      });
 
-    return {
-      attempt,
-      declaration: updatedDeclaration,
-      kyc: updatedKyc
-    };
-  });
+      await tx.kycAuditLog.create({
+        data: {
+          kycId: kyc.id,
+          actorType: "buyer",
+          action: resubmissionMode
+            ? "video_declaration_resubmitted"
+            : "video_declaration_submitted",
+          oldStatus: kyc.overallStatus,
+          newStatus: "submitted",
+          ipAddress: requestMeta.ipAddress || null,
+          userAgent: requestMeta.userAgent || null,
+          metadata: {
+            declarationId: declaration.id,
+            attemptId: attempt.id,
+            faceCheckPassed,
+            faceCheckSource: "client_reported",
+            durationSeconds,
+            currentStage: resubmissionMode
+              ? "resubmission_submitted"
+              : "buyer_submission_completed"
+          }
+        }
+      });
+
+      return {
+        attempt,
+        declaration: updatedDeclaration,
+        kyc: updatedKyc
+      };
+    });
+  } catch (error) {
+    await removeQuietly(storagePath);
+    throw error;
+  }
+
+  // Buyer submission complete — run advisory auto-checks for the reviewer.
+  runAutoChecksForKyc(kyc.id).catch((error) =>
+    console.error("[auto-checks] failed:", error.message)
+  );
 
   return {
     success: true,
-    message: "Video declaration submitted successfully. Buyer KYC submission is complete.",
+    message:
+      "Video declaration submitted successfully. Buyer KYC submission is complete.",
     declaration: formatDeclaration(result.declaration),
     attempt: {
       id: result.attempt.id,
-      publicPath: result.attempt.publicPath,
+      streamUrl: `/api/public/kyc/${rawToken}/video-attempts/${result.attempt.id}/stream`,
       mimeType: result.attempt.mimeType,
       sizeBytes: result.attempt.sizeBytes,
       durationSeconds: result.attempt.durationSeconds,
@@ -532,14 +550,10 @@ async function getVideoDeclarationWorkspace(rawToken) {
   const { kyc } = auth;
 
   const declaration = await prisma.kycVideoDeclaration.findUnique({
-    where: {
-      kycId: kyc.id
-    },
+    where: { kycId: kyc.id },
     include: {
       attempts: {
-        orderBy: {
-          uploadedAt: "desc"
-        }
+        orderBy: { uploadedAt: "desc" }
       }
     }
   });
@@ -562,7 +576,7 @@ async function getVideoDeclarationWorkspace(rawToken) {
       declaration?.attempts?.map((attempt) => ({
         id: attempt.id,
         status: attempt.status,
-        publicPath: attempt.publicPath,
+        streamUrl: `/api/public/kyc/${rawToken}/video-attempts/${attempt.id}/stream`,
         mimeType: attempt.mimeType,
         sizeBytes: attempt.sizeBytes,
         durationSeconds: attempt.durationSeconds,
@@ -598,17 +612,15 @@ function formatDeclaration(declaration) {
 
 async function getDevVideoDeclarations() {
   return prisma.kycVideoDeclaration.findMany({
-    orderBy: {
-      updatedAt: "desc"
-    }
+    orderBy: { updatedAt: "desc" },
+    take: 100
   });
 }
 
 async function getDevVideoAttempts() {
   return prisma.kycVideoAttempt.findMany({
-    orderBy: {
-      uploadedAt: "desc"
-    }
+    orderBy: { uploadedAt: "desc" },
+    take: 100
   });
 }
 

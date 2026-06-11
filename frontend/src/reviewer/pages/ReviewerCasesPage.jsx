@@ -4,10 +4,11 @@ import {
   ArrowRight,
   FileSearch,
   Loader2,
+  LogOut,
   RefreshCcw,
   Search
 } from "lucide-react";
-import { getReviewerCases } from "../../api/kycApi";
+import { getCurrentUser, getReviewerCases, logout } from "../../api/kycApi";
 import ReviewerBadge from "../components/ReviewerBadge";
 
 const filters = [
@@ -19,6 +20,8 @@ const filters = [
   { label: "Rejected", value: "rejected" }
 ];
 
+const PAN_REGEX = /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/;
+
 export default function ReviewerCasesPage() {
   const [cases, setCases] = useState([]);
   const [status, setStatus] = useState("");
@@ -26,12 +29,16 @@ export default function ReviewerCasesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function loadCases(nextStatus = status) {
+  // Full PANs are never stored or listed, so a complete PAN typed in the
+  // search box triggers an exact server-side hash lookup instead.
+  const panSearch = PAN_REGEX.test(search.trim()) ? search.trim() : "";
+
+  async function loadCases(nextStatus = status, pan = panSearch) {
     try {
       setIsLoading(true);
       setError("");
 
-      const result = await getReviewerCases(nextStatus);
+      const result = await getReviewerCases(nextStatus, pan);
 
       if (!result.success) {
         setError(result.message || "Unable to load cases.");
@@ -49,14 +56,17 @@ export default function ReviewerCasesPage() {
   }
 
   useEffect(() => {
-    loadCases(status);
+    loadCases(status, panSearch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, panSearch]);
 
   const filteredCases = cases.filter((item) => {
     const term = search.trim().toLowerCase();
 
     if (!term) return true;
+
+    // Server already did an exact hash lookup for a full PAN.
+    if (panSearch) return true;
 
     return (
       item.buyerName?.toLowerCase().includes(term) ||
@@ -86,14 +96,41 @@ export default function ReviewerCasesPage() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => loadCases(status)}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-            >
-              <RefreshCcw size={16} />
-              Refresh
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-600">
+                {getCurrentUser()?.fullName} ({getCurrentUser()?.role})
+              </span>
+
+              {getCurrentUser()?.role === "admin" && (
+                <a
+                  href="/admin"
+                  className="rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+                >
+                  Admin
+                </a>
+              )}
+
+              <button
+                type="button"
+                onClick={() => loadCases(status)}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+              >
+                <RefreshCcw size={16} />
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await logout();
+                  window.location.href = "/login";
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+              >
+                <LogOut size={16} />
+                Sign out
+              </button>
+            </div>
           </div>
         </header>
 
@@ -124,7 +161,7 @@ export default function ReviewerCasesPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search case..."
+                placeholder="Search name/email/purchase — or type full PAN"
                 className="w-full rounded-full border border-gray-200 bg-gray-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-gray-400 focus:bg-white"
               />
             </div>

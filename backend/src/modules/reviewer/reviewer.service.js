@@ -1,17 +1,19 @@
 const prisma = require("../../config/prisma");
+const { decryptField } = require("../../utils/crypto.util");
+const { validatePAN, hashPAN } = require("../kyc/pan.utils");
+const { getAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
+const { createSecureKycLinkForKyc } = require("../kyc-link/kycLink.service");
+const { sendKycEmail } = require("../email/email.service");
+const {
+  resubmissionEmail,
+  kycApprovedEmail,
+  kycRejectedEmail
+} = require("../email/email.templates");
 
-const FINAL_KYC_STATUSES = ["approved", "rejected"];
 const REVIEW_ALLOWED_STATUSES = ["submitted", "under_review", "resubmission_required"];
 
 function normalizeDecision(decision) {
   return String(decision || "").trim().toLowerCase();
-}
-
-function getReviewerIdentity(meta = {}) {
-  return {
-    reviewerId: meta.reviewerId || "dev-reviewer",
-    reviewerName: meta.reviewerName || "Development Reviewer"
-  };
 }
 
 function canReviewKycStatus(status) {
@@ -28,6 +30,20 @@ async function listKycCases(filters = {}) {
           in: ["submitted", "under_review", "resubmission_required", "approved", "rejected"]
         }
       };
+
+  // Exact PAN search: raw PANs are never stored, so the searched PAN is
+  // hashed with the same secret and matched against panHash.
+  if (filters.pan) {
+    const { isValid, normalizedPAN } = validatePAN(filters.pan);
+
+    if (!isValid) {
+      return [];
+    }
+
+    where.panHash = hashPAN(normalizedPAN);
+    delete where.overallStatus; // a direct PAN lookup ignores status filters
+    if (status) where.overallStatus = status;
+  }
 
   const cases = await prisma.kycMaster.findMany({
     where,
@@ -46,9 +62,8 @@ async function listKycCases(filters = {}) {
         }
       }
     },
-    orderBy: {
-      updatedAt: "desc"
-    }
+    orderBy: { updatedAt: "desc" },
+    take: Math.min(Number(filters.limit) || 100, 300)
   });
 
   return cases.map((item) => {
@@ -67,7 +82,7 @@ async function listKycCases(filters = {}) {
       kycId: item.id,
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
-      buyerEmail: item.buyerEmail,
+      buyerEmail: decryptField(item.buyerEmail),
       panMasked: item.panMasked,
       entityType: item.entityType,
       entityLabel: item.entityLabel,
@@ -111,47 +126,41 @@ async function getKycCaseDetail(kycId) {
       documentSubmissions: {
         include: {
           files: {
-            orderBy: [
-              { isCurrent: "desc" },
-              { uploadedAt: "desc" }
-            ]
-          },
-          requirement: true
+            orderBy: [{ isCurrent: "desc" }, { uploadedAt: "desc" }]
+          }
         },
-        orderBy: {
-          createdAt: "asc"
-        }
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
       },
       videoDeclaration: {
         include: {
           attempts: {
-            orderBy: {
-              uploadedAt: "desc"
-            }
+            orderBy: { uploadedAt: "desc" }
           }
         }
       },
       kycLinks: {
-        include: {
+        select: {
+          id: true,
+          status: true,
+          expiresAt: true,
+          clickCount: true,
+          firstClickedAt: true,
+          lastClickedAt: true,
+          createdAt: true,
           clickLogs: {
-            orderBy: {
-              clickedAt: "desc"
-            }
+            orderBy: { clickedAt: "desc" },
+            take: 20
           }
         },
-        orderBy: {
-          createdAt: "desc"
-        }
+        orderBy: { createdAt: "desc" },
+        take: 10
       },
       auditLogs: {
-        orderBy: {
-          createdAt: "desc"
-        }
+        orderBy: { createdAt: "desc" },
+        take: 100
       },
       finalReviews: {
-        orderBy: {
-          createdAt: "desc"
-        }
+        orderBy: { createdAt: "desc" }
       }
     }
   });
@@ -165,14 +174,16 @@ async function getKycCaseDetail(kycId) {
     };
   }
 
+  const autoChecks = await getAutoChecksForKyc(kycId);
+
   return {
     success: true,
     case: {
       kycId: kyc.id,
       purchaseId: kyc.purchaseId,
       buyerName: kyc.buyerName,
-      buyerEmail: kyc.buyerEmail,
-      buyerMobile: kyc.buyerMobile,
+      buyerEmail: decryptField(kyc.buyerEmail),
+      buyerMobile: decryptField(kyc.buyerMobile),
       panMasked: kyc.panMasked,
       entityType: kyc.entityType,
       entityLabel: kyc.entityLabel,
@@ -185,6 +196,7 @@ async function getKycCaseDetail(kycId) {
     },
     consent: kyc.consent,
     documentProgress: kyc.documentProgress,
+    autoChecks,
     documents: kyc.documentSubmissions.map((doc) => ({
       id: doc.id,
       requirementId: doc.requirementId,
@@ -209,7 +221,9 @@ async function getKycCaseDetail(kycId) {
         originalName: file.originalName,
         mimeType: file.mimeType,
         sizeBytes: file.sizeBytes,
-        publicPath: file.publicPath,
+        fileHash: file.fileHash,
+        // Authenticated streaming endpoint — append your access token.
+        fileUrl: `/api/reviewer/files/${file.id}`,
         version: file.version,
         isCurrent: file.isCurrent,
         uploadedAt: file.uploadedAt,
@@ -235,13 +249,14 @@ async function getKycCaseDetail(kycId) {
           attemptCount: kyc.videoDeclaration.attemptCount,
           currentAttemptId: kyc.videoDeclaration.currentAttemptId,
           faceCheckPassed: kyc.videoDeclaration.faceCheckPassed,
+          faceCheckSource: "client_reported",
           faceQualityMetadata: kyc.videoDeclaration.faceQualityMetadata,
           startedAt: kyc.videoDeclaration.startedAt,
           submittedAt: kyc.videoDeclaration.submittedAt,
           attempts: kyc.videoDeclaration.attempts.map((attempt) => ({
             id: attempt.id,
             status: attempt.status,
-            publicPath: attempt.publicPath,
+            streamUrl: `/api/reviewer/video-attempts/${attempt.id}/stream`,
             mimeType: attempt.mimeType,
             sizeBytes: attempt.sizeBytes,
             durationSeconds: attempt.durationSeconds,
@@ -296,9 +311,7 @@ async function ensureCaseMovesToUnderReview(tx, kycId, requestMeta = {}, reviewe
         newStatus: "under_review",
         ipAddress: requestMeta.ipAddress || null,
         userAgent: requestMeta.userAgent || null,
-        metadata: {
-          reviewerName: reviewer.reviewerName || null
-        }
+        metadata: { reviewerName: reviewer.reviewerName || null }
       }
     });
   }
@@ -306,10 +319,9 @@ async function ensureCaseMovesToUnderReview(tx, kycId, requestMeta = {}, reviewe
   return kyc;
 }
 
-async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta = {}) {
+async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta = {}, reviewer = {}) {
   const decision = normalizeDecision(payload.decision);
   const remarks = String(payload.remarks || "").trim();
-  const reviewer = getReviewerIdentity(requestMeta);
 
   if (!["accepted", "resubmission_required"].includes(decision)) {
     return {
@@ -331,9 +343,7 @@ async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta 
 
   const existing = await prisma.kycDocumentSubmission.findUnique({
     where: { id: submissionId },
-    include: {
-      kyc: true
-    }
+    include: { kyc: true }
   });
 
   if (!existing) {
@@ -345,13 +355,18 @@ async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta 
     };
   }
 
+  if (existing.status === "skipped") {
+    return {
+      success: false,
+      statusCode: 400,
+      code: "DOCUMENT_SKIPPED",
+      message:
+        "This optional document was skipped by the buyer — there is nothing to review."
+    };
+  }
+
   const result = await prisma.$transaction(async (tx) => {
-    await ensureCaseMovesToUnderReview(
-      tx,
-      existing.kycId,
-      requestMeta,
-      reviewer
-    );
+    await ensureCaseMovesToUnderReview(tx, existing.kycId, requestMeta, reviewer);
 
     const updated = await tx.kycDocumentSubmission.update({
       where: { id: submissionId },
@@ -374,9 +389,7 @@ async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta 
               acceptedAt: null,
               rejectedAt: new Date(),
               resubmissionRequestedAt: new Date(),
-              resubmissionCycle: {
-                increment: 1
-              }
+              resubmissionCycle: { increment: 1 }
             }
     });
 
@@ -416,10 +429,9 @@ async function reviewDocumentSubmission(submissionId, payload = {}, requestMeta 
   };
 }
 
-async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta = {}) {
+async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta = {}, reviewer = {}) {
   const decision = normalizeDecision(payload.decision);
   const remarks = String(payload.remarks || "").trim();
-  const reviewer = getReviewerIdentity(requestMeta);
 
   if (!["accepted", "resubmission_required"].includes(decision)) {
     return {
@@ -441,9 +453,7 @@ async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta =
 
   const existing = await prisma.kycVideoDeclaration.findUnique({
     where: { id: declarationId },
-    include: {
-      kyc: true
-    }
+    include: { kyc: true }
   });
 
   if (!existing) {
@@ -456,12 +466,7 @@ async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta =
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    await ensureCaseMovesToUnderReview(
-      tx,
-      existing.kycId,
-      requestMeta,
-      reviewer
-    );
+    await ensureCaseMovesToUnderReview(tx, existing.kycId, requestMeta, reviewer);
 
     const updated = await tx.kycVideoDeclaration.update({
       where: { id: declarationId },
@@ -480,9 +485,7 @@ async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta =
               reviewedBy: reviewer.reviewerId,
               reviewedAt: new Date(),
               resubmissionRequestedAt: new Date(),
-              resubmissionCycle: {
-                increment: 1
-              }
+              resubmissionCycle: { increment: 1 }
             }
     });
 
@@ -520,10 +523,48 @@ async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta =
   };
 }
 
-async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}) {
+async function sendFinalDecisionEmail(kyc, decision, remarks, failedItems) {
+  const buyerEmail = decryptField(kyc.buyerEmail);
+
+  if (!buyerEmail || buyerEmail === "[decryption-failed]") return;
+
+  let template;
+  let emailType;
+
+  if (decision === "approved") {
+    template = kycApprovedEmail({ buyerName: kyc.buyerName });
+    emailType = "kyc_approved";
+  } else if (decision === "rejected") {
+    template = kycRejectedEmail({ buyerName: kyc.buyerName, remarks });
+    emailType = "kyc_rejected";
+  } else {
+    // Resubmission: issue a fresh link (raw tokens are never stored).
+    const secureLink = await createSecureKycLinkForKyc(kyc.id, {
+      preserveStatus: true,
+      requestMeta: {}
+    });
+
+    template = resubmissionEmail({
+      buyerName: kyc.buyerName,
+      kycUrl: secureLink.buyerKycUrl,
+      failedItems,
+      remarks
+    });
+    emailType = "resubmission_requested";
+  }
+
+  await sendKycEmail({
+    kycId: kyc.id,
+    emailType,
+    to: buyerEmail,
+    subject: template.subject,
+    body: template.body
+  });
+}
+
+async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}, reviewer = {}) {
   const decision = normalizeDecision(payload.decision);
   const remarks = String(payload.remarks || "").trim();
-  const reviewer = getReviewerIdentity(requestMeta);
 
   if (!["approved", "resubmission_required", "rejected"].includes(decision)) {
     return {
@@ -580,9 +621,7 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}) {
   );
 
   const videoStatus = detail.videoDeclaration?.status || "not_started";
-
   const videoAccepted = videoStatus === "accepted";
-
   const videoFailed = ["rejected", "resubmission_required"].includes(videoStatus);
 
   if (decision === "approved") {
@@ -674,9 +713,7 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}) {
 
       if (firstFailedDoc) {
         await tx.kycDocumentProgress.upsert({
-          where: {
-            kycId
-          },
+          where: { kycId },
           update: {
             currentStepIndex: 0,
             currentRequirementId: firstFailedDoc.requirementId,
@@ -701,6 +738,14 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}) {
       }
     }
 
+    // Terminal decisions kill the buyer link.
+    if (["approved", "rejected"].includes(decision)) {
+      await tx.kycLink.updateMany({
+        where: { kycId, status: "active" },
+        data: { status: "revoked" }
+      });
+    }
+
     await tx.kycAuditLog.create({
       data: {
         kycId,
@@ -719,11 +764,18 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}) {
       }
     });
 
-    return {
-      finalReview,
-      updatedKyc
-    };
+    return { finalReview, updatedKyc };
   });
+
+  // Notify the buyer after commit — email failures never roll back decisions.
+  const failedItems = [
+    ...failedDocs.map((doc) => doc.documentName),
+    ...(videoFailed ? ["Live Video Declaration"] : [])
+  ];
+
+  sendFinalDecisionEmail(detail, decision, remarks, failedItems).catch((error) =>
+    console.error("[email] final decision notification failed:", error.message)
+  );
 
   return {
     success: true,
