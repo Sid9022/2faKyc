@@ -5,6 +5,7 @@ PAN-based KYC workflow engine for 2Factor SMS/WhatsApp buyers. One KYC case per 
 ## Key documents (read these first)
 - [Plan.md](Plan.md) — analysis + roadmap; the STATUS UPDATE table at the top shows what's done vs remaining
 - [DatabaseGuide.md](DatabaseGuide.md) — schema reference, ER diagram, state machines
+- [APIEndpoint.md](APIEndpoint.md) — complete API reference: every endpoint, auth model, error codes, curl walkthrough
 - [CurrentStage.md](CurrentStage.md) — what works now + run instructions (update at end of each phase)
 - [Goal.md](Goal.md) — original product vision
 
