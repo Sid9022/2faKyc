@@ -1,6 +1,11 @@
 const prisma = require("../../config/prisma");
 const env = require("../../config/env");
-const { sha256, maskEmail } = require("../../utils/crypto.util");
+const {
+  sha256,
+  maskEmail,
+  encryptField,
+  decryptField
+} = require("../../utils/crypto.util");
 
 /**
  * Sends email through the Dial2Verify HTTP gateway directly from Node
@@ -12,20 +17,33 @@ const { sha256, maskEmail } = require("../../utils/crypto.util");
  */
 
 async function callProvider({ to, subject, body }) {
-  const url = new URL(env.EMAIL_PROVIDER_URL);
-  url.searchParams.set("Subject", subject);
-  url.searchParams.set("From", env.EMAIL_FROM);
-  url.searchParams.set("To", to);
-  url.searchParams.set("Msg", body);
+  const params = new URLSearchParams({
+    Subject: subject,
+    From: env.EMAIL_FROM,
+    To: to,
+    Msg: body
+  });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch(url, {
-      method: "GET",
+    // POST form-encoded — HTML bodies are far too large for a GET query
+    // string (PHP's $_REQUEST reads both, so this stays compatible).
+    let response = await fetch(env.EMAIL_PROVIDER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
       signal: controller.signal
     });
+
+    // Fallback for gateways that only read query parameters.
+    if (!response.ok) {
+      response = await fetch(`${env.EMAIL_PROVIDER_URL}?${params.toString()}`, {
+        method: "GET",
+        signal: controller.signal
+      });
+    }
 
     const text = await response.text();
 
@@ -50,6 +68,7 @@ async function sendKycEmail({ kycId, emailType, to, subject, body }) {
       emailType,
       recipientHash: sha256(String(to).toLowerCase()),
       recipientMasked: maskEmail(to),
+      recipientEnc: encryptField(String(to).toLowerCase()),
       subject,
       status: "queued"
     }
@@ -108,11 +127,19 @@ async function listEmailLogs(filters = {}) {
   if (filters.status) where.status = filters.status;
   if (filters.emailType) where.emailType = filters.emailType;
 
-  return prisma.emailLog.findMany({
+  const logs = await prisma.emailLog.findMany({
     where,
     orderBy: { createdAt: "desc" },
     take: Math.min(Number(filters.limit) || 100, 500)
   });
+
+  // Admin view shows the full address (encrypted at rest); older rows
+  // without recipientEnc fall back to the masked form.
+  return logs.map((log) => ({
+    ...log,
+    recipient: log.recipientEnc ? decryptField(log.recipientEnc) : log.recipientMasked,
+    recipientEnc: undefined
+  }));
 }
 
 module.exports = {

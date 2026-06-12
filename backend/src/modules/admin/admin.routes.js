@@ -11,6 +11,7 @@ const {
   getSettings,
   patchSettings,
   getDashboardStats,
+  listAdminKycCases,
   listEmailLogs
 } = require("./admin.service");
 const { requireAuth, requireRole } = require("../../middleware/auth.middleware");
@@ -33,6 +34,7 @@ function handle(serviceCall) {
 }
 
 router.get("/dashboard", handle(() => getDashboardStats()));
+router.get("/kyc-cases", handle((req) => listAdminKycCases(req.query)));
 
 router.get("/entity-types", handle(() => listEntityTypes()));
 router.post("/entity-types", handle((req) => upsertEntityType(req.body)));

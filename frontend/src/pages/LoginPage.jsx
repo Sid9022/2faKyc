@@ -1,11 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Lock, ShieldCheck } from "lucide-react";
-import { login } from "../api/kycApi";
+import { getCurrentUser, login } from "../api/kycApi";
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Already signed in? There is nothing to do here — go to the console.
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (user) {
+      navigate(user.role === "admin" ? "/admin" : "/reviewer/cases", {
+        replace: true
+      });
+    }
+  }, [navigate]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

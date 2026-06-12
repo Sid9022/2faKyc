@@ -278,6 +278,12 @@ export async function getAdminDashboard() {
   return response.data;
 }
 
+export async function getAdminKycCases(status = "") {
+  const query = status ? `?status=${status}` : "";
+  const response = await api.get(`/api/admin/kyc-cases${query}`);
+  return response.data;
+}
+
 export async function getAdminEntityTypes() {
   const response = await api.get("/api/admin/entity-types");
   return response.data;

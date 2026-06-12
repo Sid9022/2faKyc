@@ -69,6 +69,19 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
           <p className="mt-1 text-sm leading-6 text-amber-800">
             {document.reviewerRemarks}
           </p>
+          {(document.reviewedByName || document.reviewedAt) && (
+            <p className="mt-2 text-xs font-semibold text-amber-700/80">
+              — {document.reviewedByName || "Reviewer"}
+              {document.reviewedAt
+                ? `, ${new Date(document.reviewedAt).toLocaleString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  })}`
+                : ""}
+            </p>
+          )}
         </div>
       )}
 

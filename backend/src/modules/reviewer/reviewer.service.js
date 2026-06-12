@@ -16,6 +16,23 @@ function normalizeDecision(decision) {
   return String(decision || "").trim().toLowerCase();
 }
 
+/**
+ * Resolves user ids (reviewedBy / audit actorId) to display names so the
+ * UI can show WHO did each action. Unknown ids (legacy "dev-reviewer",
+ * system actors) simply resolve to undefined.
+ */
+async function buildUserNameMap(ids) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: uniqueIds } },
+    select: { id: true, fullName: true, role: true }
+  });
+
+  return new Map(users.map((user) => [user.id, user]));
+}
+
 function canReviewKycStatus(status) {
   return REVIEW_ALLOWED_STATUSES.includes(status);
 }
@@ -176,6 +193,16 @@ async function getKycCaseDetail(kycId) {
 
   const autoChecks = await getAutoChecksForKyc(kycId);
 
+  // Resolve every reviewer/admin id involved in this case to a name.
+  const nameMap = await buildUserNameMap([
+    ...kyc.documentSubmissions.map((doc) => doc.reviewedBy),
+    kyc.videoDeclaration?.reviewedBy,
+    ...kyc.finalReviews.map((review) => review.reviewedBy),
+    ...kyc.auditLogs.map((log) => log.actorId)
+  ]);
+
+  const nameOf = (id) => nameMap.get(id)?.fullName || null;
+
   return {
     success: true,
     case: {
@@ -208,6 +235,7 @@ async function getKycCaseDetail(kycId) {
       notes: doc.notes,
       reviewerRemarks: doc.reviewerRemarks,
       reviewedBy: doc.reviewedBy,
+      reviewedByName: nameOf(doc.reviewedBy),
       reviewedAt: doc.reviewedAt,
       saveCount: doc.saveCount,
       currentVersion: doc.currentVersion,
@@ -245,6 +273,7 @@ async function getKycCaseDetail(kycId) {
           status: kyc.videoDeclaration.status,
           reviewerRemarks: kyc.videoDeclaration.reviewerRemarks,
           reviewedBy: kyc.videoDeclaration.reviewedBy,
+          reviewedByName: nameOf(kyc.videoDeclaration.reviewedBy),
           reviewedAt: kyc.videoDeclaration.reviewedAt,
           attemptCount: kyc.videoDeclaration.attemptCount,
           currentAttemptId: kyc.videoDeclaration.currentAttemptId,
@@ -268,8 +297,14 @@ async function getKycCaseDetail(kycId) {
         }
       : null,
     links: kyc.kycLinks,
-    auditLogs: kyc.auditLogs,
-    finalReviews: kyc.finalReviews
+    auditLogs: kyc.auditLogs.map((log) => ({
+      ...log,
+      actorName: nameOf(log.actorId)
+    })),
+    finalReviews: kyc.finalReviews.map((review) => ({
+      ...review,
+      reviewedByName: nameOf(review.reviewedBy)
+    }))
   };
 }
 
@@ -794,5 +829,6 @@ module.exports = {
   getKycCaseDetail,
   reviewDocumentSubmission,
   reviewVideoDeclaration,
-  finalDecisionForKyc
+  finalDecisionForKyc,
+  buildUserNameMap
 };

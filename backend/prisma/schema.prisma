@@ -592,6 +592,7 @@ model EmailLog {
   emailType        String
   recipientHash    String
   recipientMasked  String
+  recipientEnc     String?
 
   subject          String
   status           EmailStatus @default(queued)

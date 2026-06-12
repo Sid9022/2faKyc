@@ -1,9 +1,30 @@
-const bcrypt = require("bcryptjs");
+﻿const bcrypt = require("bcryptjs");
 const { z } = require("zod");
 
 const prisma = require("../../config/prisma");
 const { getAllSettings, setSetting } = require("../../utils/settings.util");
 const { listEmailLogs } = require("../email/email.service");
+const { decryptField } = require("../../utils/crypto.util");
+const { buildUserNameMap } = require("../reviewer/reviewer.service");
+
+/**
+ * Turns a zod error into a response that always carries a readable
+ * message (the UI shows `message` directly).
+ */
+function validationFailure(code, zodError) {
+  const fieldErrors = zodError.flatten().fieldErrors;
+  const message = Object.entries(fieldErrors)
+    .map(([field, messages]) => `${field}: ${messages?.[0] || "invalid"}`)
+    .join(" | ");
+
+  return {
+    success: false,
+    statusCode: 400,
+    code,
+    message: message || "Validation failed.",
+    errors: fieldErrors
+  };
+}
 
 // ---------- Entity types ----------
 
@@ -28,12 +49,7 @@ async function upsertEntityType(payload) {
   const parsed = entityTypeSchema.safeParse(payload);
 
   if (!parsed.success) {
-    return {
-      success: false,
-      statusCode: 400,
-      code: "INVALID_ENTITY_TYPE",
-      errors: parsed.error.flatten().fieldErrors
-    };
+    return validationFailure("INVALID_ENTITY_TYPE", parsed.error);
   }
 
   const data = parsed.data;
@@ -83,12 +99,7 @@ async function createRequirement(payload) {
   const parsed = requirementSchema.safeParse(payload);
 
   if (!parsed.success) {
-    return {
-      success: false,
-      statusCode: 400,
-      code: "INVALID_REQUIREMENT",
-      errors: parsed.error.flatten().fieldErrors
-    };
+    return validationFailure("INVALID_REQUIREMENT", parsed.error);
   }
 
   const data = parsed.data;
@@ -131,12 +142,7 @@ async function updateRequirement(requirementId, payload) {
   const parsed = requirementPatchSchema.safeParse(payload);
 
   if (!parsed.success) {
-    return {
-      success: false,
-      statusCode: 400,
-      code: "INVALID_REQUIREMENT",
-      errors: parsed.error.flatten().fieldErrors
-    };
+    return validationFailure("INVALID_REQUIREMENT", parsed.error);
   }
 
   const existing = await prisma.documentRequirement.findUnique({
@@ -160,7 +166,7 @@ async function updateRequirement(requirementId, payload) {
   return {
     success: true,
     requirement: updated,
-    note: "Changes apply to NEW KYC cases only — existing cases keep their snapshotted checklist."
+    note: "Changes apply to NEW KYC cases only - existing cases keep their snapshotted checklist."
   };
 }
 
@@ -194,12 +200,7 @@ async function createUser(payload, actorId) {
   const parsed = createUserSchema.safeParse(payload);
 
   if (!parsed.success) {
-    return {
-      success: false,
-      statusCode: 400,
-      code: "INVALID_USER",
-      errors: parsed.error.flatten().fieldErrors
-    };
+    return validationFailure("INVALID_USER", parsed.error);
   }
 
   const data = parsed.data;
@@ -257,12 +258,7 @@ async function updateUser(userId, payload, actorId) {
   const parsed = patchUserSchema.safeParse(payload);
 
   if (!parsed.success) {
-    return {
-      success: false,
-      statusCode: 400,
-      code: "INVALID_USER_UPDATE",
-      errors: parsed.error.flatten().fieldErrors
-    };
+    return validationFailure("INVALID_USER_UPDATE", parsed.error);
   }
 
   const existing = await prisma.user.findUnique({ where: { id: userId } });
@@ -367,26 +363,148 @@ async function patchSettings(payload = {}, actorId) {
 // ---------- Dashboard ----------
 
 async function getDashboardStats() {
-  const [byStatus, totalEmails, failedEmails, recentAudit] = await Promise.all([
-    prisma.kycMaster.groupBy({
-      by: ["overallStatus"],
-      _count: { _all: true }
-    }),
-    prisma.emailLog.count(),
-    prisma.emailLog.count({ where: { status: "failed" } }),
-    prisma.kycAuditLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 25
-    })
-  ]);
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const [byStatus, totalKycs, newThisWeek, totalEmails, failedEmails, recentAudit] =
+    await Promise.all([
+      prisma.kycMaster.groupBy({
+        by: ["overallStatus"],
+        _count: { _all: true }
+      }),
+      prisma.kycMaster.count(),
+      prisma.kycMaster.count({ where: { createdAt: { gte: since7d } } }),
+      prisma.emailLog.count(),
+      prisma.emailLog.count({ where: { status: "failed" } }),
+      prisma.kycAuditLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        include: {
+          kyc: { select: { buyerName: true, panMasked: true } }
+        }
+      })
+    ]);
+
+  const nameMap = await buildUserNameMap(recentAudit.map((log) => log.actorId));
 
   return {
+    totals: { kycs: totalKycs, newThisWeek },
     kycByStatus: Object.fromEntries(
       byStatus.map((row) => [row.overallStatus, row._count._all])
     ),
     emails: { total: totalEmails, failed: failedEmails },
-    recentAudit
+    recentAudit: recentAudit.map((log) => ({
+      id: log.id,
+      kycId: log.kycId,
+      buyerName: log.kyc?.buyerName || null,
+      panMasked: log.kyc?.panMasked || null,
+      actorType: log.actorType,
+      actorName: nameMap.get(log.actorId)?.fullName || null,
+      action: log.action,
+      oldStatus: log.oldStatus,
+      newStatus: log.newStatus,
+      metadata: log.metadata,
+      createdAt: log.createdAt
+    }))
   };
+}
+
+// ---------- KYC cases (admin oversight: who reviewed what) ----------
+
+async function listAdminKycCases(filters = {}) {
+  const where = {};
+  if (filters.status) where.overallStatus = filters.status;
+
+  const cases = await prisma.kycMaster.findMany({
+    where,
+    include: {
+      documentProgress: { select: { isFinalSubmitted: true } },
+      documentSubmissions: {
+        select: {
+          documentName: true,
+          isRequired: true,
+          status: true,
+          reviewedBy: true,
+          reviewedAt: true
+        }
+      },
+      videoDeclaration: {
+        select: { status: true, reviewedBy: true, reviewedAt: true }
+      },
+      finalReviews: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          decision: true,
+          remarks: true,
+          reviewedBy: true,
+          createdAt: true
+        }
+      }
+    },
+    orderBy: { updatedAt: "desc" },
+    take: Math.min(Number(filters.limit) || 200, 500)
+  });
+
+  const nameMap = await buildUserNameMap(
+    cases.flatMap((item) => [
+      ...item.documentSubmissions.map((doc) => doc.reviewedBy),
+      item.videoDeclaration?.reviewedBy,
+      item.finalReviews[0]?.reviewedBy
+    ])
+  );
+
+  const nameOf = (id) => nameMap.get(id)?.fullName || null;
+
+  return cases.map((item) => {
+    const docs = item.documentSubmissions;
+    const requiredDocs = docs.filter((doc) => doc.isRequired);
+
+    const reviewerNames = [
+      ...new Set(
+        [
+          ...docs.map((doc) => nameOf(doc.reviewedBy)),
+          nameOf(item.videoDeclaration?.reviewedBy)
+        ].filter(Boolean)
+      )
+    ];
+
+    const lastReview = item.finalReviews[0] || null;
+
+    return {
+      kycId: item.id,
+      purchaseId: item.purchaseId,
+      buyerName: item.buyerName,
+      buyerEmail: decryptField(item.buyerEmail),
+      panMasked: item.panMasked,
+      entityLabel: item.entityLabel,
+      serviceType: item.serviceType,
+      overallStatus: item.overallStatus,
+      currentStage: item.currentStage,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+
+      progress: {
+        requiredDocs: requiredDocs.length,
+        acceptedDocs: requiredDocs.filter((doc) => doc.status === "accepted").length,
+        failedDocs: docs.filter((doc) =>
+          ["rejected", "resubmission_required"].includes(doc.status)
+        ).length,
+        finalSubmitted: item.documentProgress?.isFinalSubmitted || false,
+        videoStatus: item.videoDeclaration?.status || "not_started"
+      },
+
+      reviewers: reviewerNames,
+
+      lastDecision: lastReview
+        ? {
+            decision: lastReview.decision,
+            remarks: lastReview.remarks,
+            byName: nameOf(lastReview.reviewedBy),
+            at: lastReview.createdAt
+          }
+        : null
+    };
+  });
 }
 
 module.exports = {
@@ -400,5 +518,6 @@ module.exports = {
   getSettings,
   patchSettings,
   getDashboardStats,
+  listAdminKycCases,
   listEmailLogs
 };
