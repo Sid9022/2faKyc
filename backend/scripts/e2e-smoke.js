@@ -2,6 +2,11 @@
  * End-to-end smoke test against a running backend (node scripts/e2e-smoke.js).
  * Walks the full lifecycle: purchase -> consent -> documents -> video ->
  * reviewer accept -> final approval. Exits non-zero on first failure.
+ *
+ * NOTE: this uses synthetic 1x1 images, which the external PAN-card validator
+ * will reject. Start the server with PAN_VALIDATION_ENABLED=false when running
+ * this smoke test, e.g. (PowerShell):
+ *   $env:PAN_VALIDATION_ENABLED="false"; npm run dev
  */
 
 const BASE = process.env.API_URL || "http://localhost:5000";

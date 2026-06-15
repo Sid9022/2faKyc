@@ -12,6 +12,10 @@ const {
   cleanupRequestFiles
 } = require("../../utils/fileStorage.util");
 const { runAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
+const {
+  isPanDocument,
+  validatePanCardForKyc
+} = require("../pan-validation/panValidation.service");
 
 const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
 
@@ -461,6 +465,54 @@ async function saveDocumentStepInner(rawToken, requirementId, body, incomingFile
     if (!validation.success) return validation;
   }
 
+  // PAN-card gate: a PAN document's primary image must be recognized as a real
+  // PAN card before we keep it. Runs on the temp file, before it's stored.
+  let panValidationRecord = null;
+
+  if (isReplacingFiles && isPanDocument(submission.documentKey)) {
+    const isImage = (item) =>
+      String(item.detectedType || item.file.mimetype).startsWith("image/");
+
+    const target =
+      incomingFiles.find((item) => item.slot === "front" && isImage(item)) ||
+      incomingFiles.find((item) => item.slot === "document" && isImage(item)) ||
+      incomingFiles.find(isImage) ||
+      incomingFiles[0];
+
+    const panResult = await validatePanCardForKyc({
+      filePath: target.file.path,
+      mimeType: target.detectedType || target.file.mimetype,
+      kyc
+    });
+
+    panValidationRecord = panResult.record || null;
+
+    if (panResult.gate === "reject") {
+      // File is NOT saved — record the rejection for the audit trail.
+      await prisma.kycAuditLog.create({
+        data: {
+          kycId: kyc.id,
+          actorType: "buyer",
+          action: "pan_card_validation_rejected",
+          ipAddress: requestMeta.ipAddress || null,
+          userAgent: requestMeta.userAgent || null,
+          metadata: {
+            documentKey: submission.documentKey,
+            code: panResult.code,
+            ...(panResult.record || {})
+          }
+        }
+      });
+
+      return {
+        success: false,
+        statusCode: 400,
+        code: panResult.code,
+        message: panResult.message
+      };
+    }
+  }
+
   const nextVersion = isReplacingFiles
     ? submission.currentVersion + 1
     : submission.currentVersion;
@@ -524,7 +576,12 @@ async function saveDocumentStepInner(rawToken, requirementId, body, incomingFile
               isCurrent: true,
               ipAddress: requestMeta.ipAddress || null,
               userAgent: requestMeta.userAgent || null,
-              metadata: { source: "buyer_document_upload" }
+              metadata: {
+                source: "buyer_document_upload",
+                ...(panValidationRecord
+                  ? { panValidation: panValidationRecord }
+                  : {})
+              }
             }
           });
         }
@@ -608,7 +665,8 @@ async function saveDocumentStepInner(rawToken, requirementId, body, incomingFile
             documentName: submission.documentName,
             version: nextVersion,
             fileCount: incomingFiles.length,
-            reusedExistingFile: !isReplacingFiles
+            reusedExistingFile: !isReplacingFiles,
+            ...(panValidationRecord ? { panValidation: panValidationRecord } : {})
           }
         }
       });

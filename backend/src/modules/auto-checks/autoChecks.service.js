@@ -73,6 +73,48 @@ async function runAutoChecksForKyc(kycId) {
           }
   });
 
+  // 2b. PAN card validation (recorded at upload by the external recognizer).
+  const panRecords = kyc.documentSubmissions
+    .filter((doc) => /pan/i.test(doc.documentKey))
+    .flatMap((doc) =>
+      doc.files
+        .filter((file) => file.metadata?.panValidation)
+        .map((file) => ({
+          documentName: doc.documentName,
+          ...file.metadata.panValidation
+        }))
+    );
+
+  if (panRecords.length > 0) {
+    const anyAccepted = panRecords.some((r) => r.status === "accepted");
+    const anyRejected = panRecords.some((r) => r.status === "rejected");
+    const anyPanMismatch = panRecords.some((r) => r.panMatchesPurchase === false);
+    const anyEntityMismatch = panRecords.some(
+      (r) => r.classificationMatchesEntity === false
+    );
+
+    let message;
+    if (!anyAccepted && anyRejected) {
+      message = "External validator rejected a PAN card image.";
+    } else if (anyPanMismatch) {
+      message =
+        "PAN card recognized, but its PAN number does not match the purchase PAN.";
+    } else if (anyEntityMismatch) {
+      message =
+        "PAN card recognized, but its holder type does not match the KYC entity.";
+    } else if (anyAccepted) {
+      message = "PAN card recognized by the external validator.";
+    } else {
+      message = "PAN card could not be auto-validated.";
+    }
+
+    checks.push({
+      checkKey: "pan_card_validation",
+      passed: anyAccepted && !anyRejected && !anyPanMismatch && !anyEntityMismatch,
+      details: { message, records: panRecords }
+    });
+  }
+
   // 3. PAN/entity consistency (validated at intake; recorded for the reviewer).
   checks.push({
     checkKey: "pan_entity_consistency",

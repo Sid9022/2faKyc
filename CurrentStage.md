@@ -22,6 +22,13 @@ targeted resubmission) is complete, and the production-hardening pass from
 6. **Document wizard** — drafts, versioned files, optional skip, magic-byte
    content validation (fake PNGs rejected), sha256 fileHash, disk-streamed
    uploads (no RAM buffering), files written before DB commit.
+6b. **PAN-card validation** — PAN documents (pan_card/company_pan/firm_llp_pan)
+    are gated through an external recognizer (Hugging Face) at upload: a
+    non-PAN/unreadable image is rejected before it's stored, and the buyer is
+    told to upload a clear photo. On success the extracted PAN is cross-checked
+    (privacy-preserving, via panHash) against the purchase PAN and surfaced to
+    the reviewer as the `pan_card_validation` auto-check. Toggle via
+    `PAN_VALIDATION_*` env (live-verified against the recognizer 2026-06-12).
 7. **Video declaration** — runtime code + script, MediaPipe face check
    (recorded as `client_reported`/advisory), webm/mp4 content validation,
    attempt history.

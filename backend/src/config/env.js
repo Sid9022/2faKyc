@@ -80,6 +80,26 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
 
+  // External PAN-card recognizer (Hugging Face space).
+  PAN_VALIDATION_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true"),
+  PAN_VALIDATION_URL: z
+    .string()
+    .default("https://kingkill1111-2factor-kyc-api.hf.space/api/v1/kyc/validate"),
+  // On network/timeout errors: true = allow upload (flag for reviewer),
+  // false = block and ask the buyer to retry.
+  PAN_VALIDATION_FAIL_OPEN: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true"),
+  // true = reject when the card's PAN doesn't match the KYC's PAN.
+  PAN_MATCH_STRICT: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true"),
+
   SEED_ADMIN_EMAIL: z.string().default("admin@2factor.local"),
   SEED_ADMIN_PASSWORD: z.string().default("Admin@12345")
 });

@@ -253,6 +253,16 @@ Saves one document step. `multipart/form-data`:
 
 Files: JPG/PNG/WEBP/PDF, ≤10 MB each. **Content is verified by magic bytes** — a renamed `.exe` is rejected with `400 INVALID_FILE_CONTENT`. Re-uploading creates version N+1; old versions are kept for the reviewer.
 
+**PAN-card gate.** If the document is a PAN card (`documentKey` contains `pan` — `pan_card`, `company_pan`, `firm_llp_pan`), the uploaded image is sent to an external recognizer **before it is saved**. A non-PAN / unreadable image is rejected and **not stored**:
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `PAN_CARD_INVALID` | Not a recognizable PAN card — `message` tells the buyer to upload a clear photo |
+| 400 | `PAN_MISMATCH` | (only when `PAN_MATCH_STRICT=true`) The card's PAN ≠ this KYC's PAN |
+| 400 | `PAN_VALIDATION_UNAVAILABLE` | (only when `PAN_VALIDATION_FAIL_OPEN=false`) Validator unreachable; ask the buyer to retry |
+
+On success the extracted PAN (masked) and holder classification are cross-checked against the KYC and surfaced to the reviewer as the `pan_card_validation` auto-check. Controlled by `PAN_VALIDATION_*` env vars (see `.env.example`); set `PAN_VALIDATION_ENABLED=false` to bypass (e.g. for the synthetic e2e smoke test).
+
 ```bash
 curl -s -X POST \
   http://localhost:5000/api/public/kyc/$LINK_TOKEN/documents/$REQUIREMENT_ID/save \
@@ -498,6 +508,9 @@ curl -s -X POST http://localhost:5000/api/dev/dummy-purchase \
 | `REQUIRED_DOCUMENT_CANNOT_BE_SKIPPED` / `SKIP_NOT_ALLOWED_IN_RESUBMISSION` | 400 | documents | Skip rules |
 | `INVALID_FILE_SLOT` / `DOCUMENT_FILES_REQUIRED` | 400 | documents | Wrong/missing slots for input mode |
 | `INVALID_FILE_CONTENT` / `INVALID_VIDEO_CONTENT` | 400 | uploads | Magic-byte check failed |
+| `PAN_CARD_INVALID` | 400 | documents | Uploaded PAN image isn't a recognizable PAN card |
+| `PAN_MISMATCH` | 400 | documents | PAN on card ≠ KYC PAN (strict mode only) |
+| `PAN_VALIDATION_UNAVAILABLE` | 400 | documents | Recognizer unreachable (fail-closed mode only) |
 | `FILE_TOO_LARGE` / `INVALID_FILE_TYPE` | 400 | uploads | Multer limits (10 MB docs / 80 MB video) |
 | `DOCUMENT_LOCKED` / `DOCUMENT_NOT_EDITABLE` | 403 | resubmission | Item not flagged for correction |
 | `DOCUMENTS_REQUIRED` | 403 | video | Final-submit documents first |
