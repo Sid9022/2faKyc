@@ -2,20 +2,23 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Lock, ShieldCheck } from "lucide-react";
 import { getCurrentUser, login } from "../api/kycApi";
+import { postLoginTarget } from "../authRoutes";
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Already signed in? There is nothing to do here — go to the console.
+  // Already signed in? There is nothing to do here — go to the console
+  // appropriate for this user's role.
   useEffect(() => {
     const user = getCurrentUser();
     if (user) {
-      navigate(user.role === "admin" ? "/admin" : "/reviewer/cases", {
+      navigate(postLoginTarget(user.role, location.state?.from), {
         replace: true
       });
     }
-  }, [navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,10 +34,11 @@ export default function LoginPage() {
       const result = await login(email, password);
 
       if (result.success) {
-        const target =
-          location.state?.from ||
-          (result.user.role === "admin" ? "/admin" : "/reviewer/cases");
-        navigate(target, { replace: true });
+        // Route by role. `from` is only honored when this role can access it,
+        // so a reviewer never lands on a stale /admin target.
+        navigate(postLoginTarget(result.user.role, location.state?.from), {
+          replace: true
+        });
       } else {
         setError(result.message || "Login failed.");
       }

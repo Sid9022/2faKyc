@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { getCurrentUser } from "../api/kycApi";
+import { roleHome } from "../authRoutes";
 
 /**
  * Route guard: requires a logged-in user with one of the given roles.
@@ -20,21 +21,16 @@ export default function RequireRole({ roles, children }) {
     };
   }, []);
 
+  // Not signed in → go to login, remembering where they wanted to go.
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
+  // Signed in but wrong role for THIS page → send them to their own
+  // dashboard instead of a dead-end. roleHome targets are always
+  // accessible to that role, so there is no redirect loop.
   if (!roles.includes(user.role)) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="rounded-[2rem] border border-red-100 bg-white p-8 text-center shadow-sm">
-          <p className="text-base font-bold text-red-700">Access denied</p>
-          <p className="mt-2 text-sm text-gray-500">
-            Your account ({user.role}) does not have permission for this page.
-          </p>
-        </div>
-      </div>
-    );
+    return <Navigate to={roleHome(user.role)} replace />;
   }
 
   return children;
