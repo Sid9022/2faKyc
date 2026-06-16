@@ -87,7 +87,7 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   PAN_VALIDATION_URL: z
     .string()
-    .default("https://kingkill1111-2factor-kyc-api.hf.space/api/v1/kyc/validate"),
+    .default("https://aryans3-2fakyc.hf.space/analyze-pan?include_full_pan=true"),
   // On network/timeout errors: true = allow upload (flag for reviewer),
   // false = block and ask the buyer to retry.
   PAN_VALIDATION_FAIL_OPEN: z

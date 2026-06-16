@@ -94,8 +94,17 @@ async function validatePanCardForKyc({ filePath, mimeType, kyc }) {
   const data = outcome.data || {};
 
   // Definitive "not a PAN card" — always blocks, regardless of fail-open.
-  if (data.status !== "accepted") {
-    const reason = data.reason || "This does not look like a valid PAN card.";
+  // The recognizer reports rejection via status="rejected" / valid_pan=false.
+  const accepted = data.status === "accepted" || data.valid_pan === true;
+
+  if (!accepted) {
+    // message = normal rejection; detail = FastAPI validation error
+    // (e.g. "Image is too small. Minimum dimension is 64 pixels.").
+    const reason =
+      data.message ||
+      data.detail ||
+      data.reason ||
+      "This does not look like a valid PAN card.";
     return {
       gate: "reject",
       code: "PAN_CARD_INVALID",
@@ -106,7 +115,11 @@ async function validatePanCardForKyc({ filePath, mimeType, kyc }) {
 
   // Accepted — cross-check against what we know about this KYC.
   const extractedPan = String(data.data?.pan_number || "").toUpperCase();
-  const classificationCode = data.data?.classification_code || null;
+  // New model: entity_code/entity_type; older model: classification_code/name.
+  const classificationCode =
+    data.data?.entity_code || data.data?.classification_code || null;
+  const classificationName =
+    data.data?.entity_type || data.data?.classification_name || null;
 
   const panMatchesPurchase = extractedPan
     ? hashPAN(extractedPan) === kyc.panHash
@@ -117,9 +130,10 @@ async function validatePanCardForKyc({ filePath, mimeType, kyc }) {
 
   const record = {
     status: "accepted",
-    extractedPanMasked: maskPAN(extractedPan),
+    extractedPanMasked: maskPAN(extractedPan) || data.data?.masked_pan || null,
     classificationCode,
-    classificationName: data.data?.classification_name || null,
+    classificationName,
+    kycRoute: data.data?.kyc_route || null,
     panMatchesPurchase,
     classificationMatchesEntity
   };
