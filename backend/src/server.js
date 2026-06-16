@@ -5,6 +5,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 
 const prisma = require("./config/prisma");
+const { flowLogMiddleware } = require("./config/flowLogger");
 const { publicLimiter } = require("./middleware/rateLimit.middleware");
 const { startReminderScheduler, stopReminderScheduler } = require("./modules/reminders/reminder.scheduler");
 
@@ -51,6 +52,9 @@ app.use(
     }
   })
 );
+
+// Live flow log: tag every request + its DB operations (dev only, no-op in prod).
+app.use(flowLogMiddleware);
 
 app.get("/", (req, res) => {
   res.json({

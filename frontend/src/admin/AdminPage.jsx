@@ -476,6 +476,7 @@ function CasesTab() {
       (item) =>
         item.buyerName?.toLowerCase().includes(term) ||
         item.buyerEmail?.toLowerCase().includes(term) ||
+        item.pan?.toLowerCase().includes(term) ||
         item.panMasked?.toLowerCase().includes(term) ||
         item.purchaseId?.toLowerCase().includes(term) ||
         item.reviewers?.some((name) => name.toLowerCase().includes(term))
@@ -557,7 +558,7 @@ function AdminCaseRow({ item }) {
             <StatusBadge status={item.overallStatus} />
           </div>
           <p className="mt-1 truncate text-xs text-gray-500">
-            {item.panMasked} • {item.entityLabel} • {item.serviceType}
+            {item.pan || item.panMasked} • {item.entityLabel} • {item.serviceType}
           </p>
           <p className="mt-0.5 truncate text-xs text-gray-400">{item.buyerEmail}</p>
         </div>

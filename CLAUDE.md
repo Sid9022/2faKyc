@@ -5,6 +5,7 @@ PAN-based KYC workflow engine for 2Factor SMS/WhatsApp buyers. One KYC case per 
 ## Key documents (read these first)
 - [Plan.md](Plan.md) — analysis + roadmap; the STATUS UPDATE table at the top shows what's done vs remaining
 - [DatabaseGuide.md](DatabaseGuide.md) — schema reference, ER diagram, state machines
+- [DatabaseFlow.md](DatabaseFlow.md) — data flow start→end with logs/edge cases, normalization + redundancy analysis, volumetrics, index optimization plan
 - [APIEndpoint.md](APIEndpoint.md) — complete API reference: every endpoint, auth model, error codes, curl walkthrough
 - [CurrentStage.md](CurrentStage.md) — what works now + run instructions (update at end of each phase)
 - [Goal.md](Goal.md) — original product vision
@@ -25,6 +26,7 @@ cd frontend && npm install && npm run dev                                       
 
 ## Architecture map
 - `backend/src/config/env.js` — boot-time env validation (crashes prod if secrets missing)
+- `backend/src/config/flowLogger.js` — dev-only live flow log: tags every request + every Prisma op (table/operation/args/SQL) to `backend/logs/flow.log` via AsyncLocalStorage; toggle with `FLOW_LOG_*`
 - `backend/src/middleware/` — `auth.middleware.js` (JWT, `requireRole`, query-token variant for media tags), `rateLimit.middleware.js`
 - `backend/src/utils/` — `crypto.util.js` (AES-256-GCM field enc, hashes, masks), `fileStorage.util.js` (tmp→final moves, hashing), `fileValidation.util.js` (magic bytes), `settings.util.js`, `request.util.js`
 - `backend/src/modules/` — `auth`, `webhook`, `purchase` (dev intake), `kyc` (PAN + intake core), `kyc-link`, `kyc-documents`, `kyc-video`, `kyc-resubmission`, `reviewer`, `admin`, `email` (Node→Dial2Verify), `reminders` (interval scheduler), `auto-checks`, `files` (authed streaming)
@@ -33,7 +35,7 @@ cd frontend && npm install && npm run dev                                       
 - Frontend: buyer flow `components/` + `pages/KycStartPage`, staff `pages/LoginPage`, `reviewer/`, `admin/AdminPage`, guard `components/RequireRole.jsx`
 
 ## Invariants (do not break)
-- Raw PAN and raw link/refresh tokens are NEVER stored — only sha256 hashes + masks; check every JSON/metadata write
+- PAN is stored AES-256-GCM-encrypted (`panEnc`, reversible — decrypted ONLY for admin/reviewer dashboards) alongside a deterministic `panHash` (blind index for one-KYC-per-PAN dedup + exact search) and `panMasked`. Raw link/refresh tokens are still NEVER stored (only sha256 hashes). Never expose the full PAN on buyer/public endpoints — those return `panMasked`.
 - buyerEmail/buyerMobile are encrypted (`enc:v1:` prefix); use `decryptField` to read (passes legacy plaintext through)
 - Checklist is SNAPSHOTTED into `kyc_document_submissions` at KYC creation — never resolve a buyer's checklist from `DocumentRequirement` live
 - Every state change writes a `KycAuditLog` row inside the same transaction

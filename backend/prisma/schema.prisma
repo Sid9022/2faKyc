@@ -112,6 +112,7 @@ model KycMaster {
 
   panHash       String           @unique
   panMasked     String
+  panEnc        String?          // AES-256-GCM (enc:v1:) — reversible; decrypted for admin/reviewer
 
   entityChar    String
   entityType    String
@@ -136,6 +137,7 @@ model KycMaster {
   @@index([purchaseId])
   @@index([entityType])
   @@index([overallStatus])
+  @@index([updatedAt])
   @@map("kyc_masters")
 }
 
@@ -255,9 +257,11 @@ model KycAuditLog {
 
   createdAt   DateTime  @default(now())
 
-  @@index([kycId])
-  @@index([action])
-  @@index([actorType])
+  // Aligned to real queries: case-detail timeline (by kyc, newest first) and
+  // the global dashboard feed (newest first). action/actorType were never
+  // queried — dropped to cut write amplification on this hot table.
+  @@index([kycId, createdAt])
+  @@index([createdAt])
   @@map("kyc_audit_logs")
 }
 
@@ -606,6 +610,7 @@ model EmailLog {
   @@index([kycId])
   @@index([emailType])
   @@index([status])
+  @@index([createdAt])
   @@map("email_logs")
 }
 

@@ -101,7 +101,19 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
 
   SEED_ADMIN_EMAIL: z.string().default("admin@2factor.local"),
-  SEED_ADMIN_PASSWORD: z.string().default("Admin@12345")
+  SEED_ADMIN_PASSWORD: z.string().default("Admin@12345"),
+
+  // Live flow log (dev tool): writes every request + DB operation to a file.
+  // Forced off in production to avoid logging SQL/args.
+  FLOW_LOG_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true"),
+  FLOW_LOG_SQL: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true"),
+  FLOW_LOG_FILE: z.string().default("flow.log")
 });
 
 const parsed = envSchema.safeParse({

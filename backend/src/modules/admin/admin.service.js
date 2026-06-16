@@ -475,6 +475,7 @@ async function listAdminKycCases(filters = {}) {
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
       buyerEmail: decryptField(item.buyerEmail),
+      pan: decryptField(item.panEnc) || item.panMasked,
       panMasked: item.panMasked,
       entityLabel: item.entityLabel,
       serviceType: item.serviceType,

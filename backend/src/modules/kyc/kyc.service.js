@@ -356,6 +356,7 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
 
           panHash,
           panMasked,
+          panEnc: encryptField(pan),
 
           entityChar: entityResult.entityChar,
           entityType: entityResult.entity.key,

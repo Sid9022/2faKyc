@@ -71,6 +71,7 @@ export default function ReviewerCasesPage() {
     return (
       item.buyerName?.toLowerCase().includes(term) ||
       item.buyerEmail?.toLowerCase().includes(term) ||
+      item.pan?.toLowerCase().includes(term) ||
       item.panMasked?.toLowerCase().includes(term) ||
       item.purchaseId?.toLowerCase().includes(term)
     );
@@ -228,7 +229,7 @@ function CaseRow({ item }) {
           </h2>
 
           <p className="mt-1 text-sm text-gray-500">
-            {item.entityLabel} • {item.serviceType} • {item.panMasked}
+            {item.entityLabel} • {item.serviceType} • {item.pan || item.panMasked}
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">

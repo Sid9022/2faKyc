@@ -2,6 +2,7 @@
 
 > Source of truth: [backend/prisma/schema.prisma](backend/prisma/schema.prisma) (PostgreSQL, Prisma 7).
 > §1–3 document what exists today. §4 documents the tables you still need (referenced by [Plan.md](Plan.md) phases).
+> For **data flow start→end, normalization/redundancy analysis, volumetrics, and the index optimization plan**, see [DatabaseFlow.md](DatabaseFlow.md).
 
 ---
 
@@ -55,8 +56,9 @@ One row per unique PAN. Holds buyer identity, entity classification, and the ove
 
 | Column | Notes |
 |---|---|
-| `panHash` | SHA-256(pan + PAN_HASH_SECRET). **Unique.** ⚠️ Changing the secret orphans all dedup history. |
-| `panMasked` | `ABCP****4P` — only displayable form |
+| `panHash` | SHA-256(pan + PAN_HASH_SECRET). **Unique** — blind index for one-KYC-per-PAN dedup + exact search. ⚠️ Changing the secret orphans all dedup history. |
+| `panMasked` | `ABCP****P` — shown on buyer/public endpoints |
+| `panEnc` | AES-256-GCM (`enc:v1:`) reversible ciphertext of the full PAN. Decrypted ONLY in admin/reviewer services so staff can view the full PAN. |
 | `buyerEmail`, `buyerMobile` | ⚠️ currently plaintext — encrypt (Plan S5) |
 | `amount` | ⚠️ `Float` — migrate to `Decimal(12,2)` |
 | `entityChar/Type/Label` | derived from PAN[3]: P→individual, C→company, F→firm_llp |
@@ -271,7 +273,7 @@ model AppSetting {
 | optional | revoke active `kyc_links` when KYC hits terminal status | defense in depth |
 
 ## 6. Data-privacy rules (enforce in code review)
-1. Raw PAN: never persisted anywhere (only `panHash` + `panMasked`). Check every `rawPayload`/`metadata` JSON write.
+1. PAN: stored reversibly encrypted (`panEnc`, AES-256-GCM) so admin/reviewer can view the full number, plus `panHash` (blind index) + `panMasked`. The raw PAN must still never appear in `rawPayload`/`metadata` JSON (those store the masked PAN) or on buyer/public endpoints. Decrypt `panEnc` only inside admin/reviewer services.
 2. Aadhaar: when OCR lands, mask to last 4 digits before storing `extractedJson`; never store the full number (UIDAI offline e-KYC guidance).
 3. Email/mobile: encrypted at rest; `recipientHash` for lookups.
 4. Files/videos: private storage, authorized access only, access itself audit-logged.

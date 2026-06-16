@@ -147,7 +147,7 @@ export default function ReviewerCaseDetailPage() {
               </h1>
 
               <p className="mt-2 text-sm leading-6 text-gray-500">
-                {kyc.entityLabel} • {kyc.serviceType} • {kyc.panMasked}
+                {kyc.entityLabel} • {kyc.serviceType} • {kyc.pan || kyc.panMasked}
               </p>
             </div>
 
@@ -256,7 +256,7 @@ function OverviewTab({ detail, reload }) {
           <Info label="Buyer Email" value={kyc.buyerEmail} />
           <Info label="Entity" value={kyc.entityLabel} />
           <Info label="Service" value={kyc.serviceType} />
-          <Info label="PAN" value={kyc.panMasked} />
+          <Info label="PAN" value={kyc.pan || kyc.panMasked} />
           <Info label="Mobile" value={kyc.buyerMobile || "—"} />
         </div>
 
