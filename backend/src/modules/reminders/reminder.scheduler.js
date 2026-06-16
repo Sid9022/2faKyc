@@ -15,16 +15,47 @@ const REMINDABLE_STATUSES = [
 
 let isRunning = false;
 
+// While a batch is being processed, claimed rows are pushed this far into the
+// future so a second instance won't re-pick them; the real nextDueAt is written
+// once each reminder is finalized. If the process dies mid-batch, the un-sent
+// rows simply come due again after the lease (delayed, never duplicated).
+const CLAIM_LEASE_MINUTES = 10;
+
+/**
+ * Atomically claims a batch of due reminders so that running multiple backend
+ * instances can never send the same reminder twice. `FOR UPDATE SKIP LOCKED`
+ * makes concurrent claimers grab disjoint rows; with a single instance it
+ * behaves exactly like the old findMany.
+ */
+async function claimDueReminders(now) {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw`
+      SELECT id, "kycId", "reminderCount", "maxReminders"
+      FROM "reminder_states"
+      WHERE exhausted = false AND "nextDueAt" <= ${now}
+      ORDER BY "nextDueAt" ASC
+      LIMIT 50
+      FOR UPDATE SKIP LOCKED
+    `;
+
+    const ids = rows.map((row) => row.id);
+    if (ids.length === 0) return [];
+
+    const lease = new Date(now.getTime() + CLAIM_LEASE_MINUTES * 60 * 1000);
+
+    await tx.reminderState.updateMany({
+      where: { id: { in: ids } },
+      data: { nextDueAt: lease }
+    });
+
+    return rows;
+  });
+}
+
 async function processDueReminders() {
   const now = new Date();
 
-  const dueStates = await prisma.reminderState.findMany({
-    where: {
-      exhausted: false,
-      nextDueAt: { lte: now }
-    },
-    take: 50
-  });
+  const dueStates = await claimDueReminders(now);
 
   if (dueStates.length === 0) return 0;
 
