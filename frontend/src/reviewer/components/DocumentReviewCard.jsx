@@ -28,19 +28,19 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
   }
 
   return (
-    <section className="rounded-[2rem] border border-gray-200/80 bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gray-50 text-gray-700">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-700">
             <FileCheck2 size={20} />
           </div>
 
           <div>
-            <h2 className="text-base font-semibold text-gray-950">
+            <h2 className="text-base font-semibold text-navy">
               {document.documentName}
             </h2>
 
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-slate-500">
               {document.documentKey} • {document.isRequired ? "Required" : "Optional"} •
               Version {document.currentVersion}
             </p>
@@ -51,11 +51,11 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
       </div>
 
       {document.notes && (
-        <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
             Buyer note
           </p>
-          <p className="mt-1 text-sm leading-6 text-gray-700">
+          <p className="mt-1 text-sm leading-6 text-slate-700">
             {document.notes}
           </p>
         </div>
@@ -86,7 +86,7 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
       )}
 
       <div className="mt-5 space-y-4">
-        <p className="text-sm font-semibold text-gray-950">Current files</p>
+        <p className="text-sm font-semibold text-navy">Current files</p>
 
         {currentFiles.length === 0 ? (
           <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
@@ -100,8 +100,8 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
       </div>
 
       {oldFiles.length > 0 && (
-        <details className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
-          <summary className="cursor-pointer text-sm font-semibold text-gray-700">
+        <details className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-700">
             View old versions ({oldFiles.length})
           </summary>
 
@@ -141,13 +141,13 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
       )}
 
       {isReviewed && !isCaseClosed && (
-        <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-gray-950">
+              <p className="text-sm font-semibold text-navy">
                 Need to change this decision?
               </p>
-              <p className="mt-1 text-xs leading-5 text-gray-500">
+              <p className="mt-1 text-xs leading-5 text-slate-500">
                 Use this only if the earlier review was done by mistake.
               </p>
             </div>
@@ -155,7 +155,7 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
             <button
               type="button"
               onClick={() => setShowChangePanel((prev) => !prev)}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition active:scale-[0.98] hover:bg-gray-50"
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition active:scale-[0.98] hover:bg-slate-50"
             >
               <RotateCcw size={16} />
               Change decision
@@ -176,7 +176,7 @@ export default function DocumentReviewCard({ document, caseStatus, onReviewed })
       )}
 
       {isCaseClosed && (
-        <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-medium text-gray-600">
+        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-medium text-slate-600">
           This KYC is already {caseStatus}. Document review is locked.
         </div>
       )}
@@ -191,8 +191,8 @@ function ReviewResultCard({ type, title, description }) {
     <div
       className={`mt-5 rounded-2xl border px-4 py-3 ${
         isAccepted
-          ? "border-emerald-100 bg-emerald-50 text-emerald-700"
-          : "border-orange-100 bg-orange-50 text-orange-700"
+          ? "border-green-100 bg-green-50 text-green-700"
+          : "border-violet-100 bg-violet-50 text-violet-700"
       }`}
     >
       <div className="flex items-start gap-3">

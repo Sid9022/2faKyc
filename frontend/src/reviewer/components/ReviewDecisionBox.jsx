@@ -44,10 +44,10 @@ export default function ReviewDecisionBox({
   }
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
-      <p className="text-sm font-semibold text-gray-950">{title}</p>
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+      <p className="text-sm font-semibold text-navy">{title}</p>
 
-      <p className="mt-1 text-xs leading-5 text-gray-500">
+      <p className="mt-1 text-xs leading-5 text-slate-500">
         Accept saves instantly. Resubmission requires a clear correction note.
       </p>
 
@@ -56,7 +56,7 @@ export default function ReviewDecisionBox({
           type="button"
           onClick={() => submitDecision("accepted", "Accepted.")}
           disabled={disabled || isSubmitting}
-          className="flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-100 transition active:scale-[0.98] hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+          className="flex items-center justify-center gap-2 rounded-xl bg-success px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-success/90 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isSubmitting && mode !== "resubmission" ? (
             <Loader2 className="animate-spin" size={16} />
@@ -76,10 +76,10 @@ export default function ReviewDecisionBox({
             setError("");
           }}
           disabled={disabled || isSubmitting}
-          className={`flex items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ${
             mode === "resubmission"
-              ? "bg-orange-600 text-white shadow-lg shadow-orange-100"
-              : "border border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+              ? "bg-resubmit text-white"
+              : "border border-violet-200 bg-white text-violet-700 hover:bg-violet-50"
           }`}
         >
           <RotateCcw size={16} />
@@ -88,8 +88,8 @@ export default function ReviewDecisionBox({
       </div>
 
       {mode === "resubmission" && (
-        <div className="mt-4 rounded-2xl border border-orange-100 bg-white p-4">
-          <label className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600">
+        <div className="mt-4 rounded-2xl border border-violet-100 bg-white p-4">
+          <label className="text-xs font-bold uppercase tracking-[0.16em] text-violet-600">
             Resubmission reason
           </label>
 
@@ -99,7 +99,7 @@ export default function ReviewDecisionBox({
             disabled={disabled || isSubmitting}
             rows={3}
             placeholder="Example: Document is blurry. Please upload a clearer image."
-            className="mt-2 w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-gray-400 focus:bg-white disabled:opacity-60"
+            className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
           />
 
           <button
@@ -108,7 +108,7 @@ export default function ReviewDecisionBox({
               submitDecision("resubmission_required", remarks)
             }
             disabled={disabled || isSubmitting || remarks.trim().length < 3}
-            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-100 transition active:scale-[0.98] hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none sm:w-auto"
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-resubmit px-5 py-3 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-resubmit/90 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
           >
             {isSubmitting && <Loader2 className="animate-spin" size={16} />}
             Save resubmission request
@@ -117,7 +117,7 @@ export default function ReviewDecisionBox({
       )}
 
       {message && (
-        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+        <div className="mt-3 rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
           {message}
         </div>
       )}

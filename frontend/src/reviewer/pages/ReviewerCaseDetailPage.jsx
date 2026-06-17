@@ -2,16 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ArrowUpRight,
   Building2,
+  FileSearch,
   FileText,
   History,
+  LayoutDashboard,
   Loader2,
   RefreshCcw,
   ShieldCheck,
   Video
 } from "lucide-react";
 
-import { getReviewerCaseDetail } from "../../api/kycApi";
+import { getCurrentUser, getReviewerCaseDetail } from "../../api/kycApi";
+import StaffLayout from "../../components/layout/StaffLayout";
 import AuditTimeline from "../components/AuditTimeline";
 import DocumentReviewCard from "../components/DocumentReviewCard";
 import FinalDecisionPanel from "../components/FinalDecisionPanel";
@@ -24,6 +28,24 @@ const tabs = [
   { key: "video", label: "Video", icon: Video },
   { key: "audit", label: "Audit", icon: History }
 ];
+
+function buildNavItems() {
+  const isAdmin = getCurrentUser()?.role === "admin";
+  return [
+    { key: "cases", label: "KYC cases", icon: FileSearch, to: "/reviewer/cases" },
+    ...(isAdmin
+      ? [
+          {
+            key: "admin",
+            label: "Admin console",
+            icon: LayoutDashboard,
+            to: "/admin",
+            trailing: <ArrowUpRight size={14} className="text-white/40" />
+          }
+        ]
+      : [])
+  ];
+}
 
 export default function ReviewerCaseDetailPage() {
   const { kycId } = useParams();
@@ -66,9 +88,7 @@ export default function ReviewerCaseDetailPage() {
         });
       }
     } catch (err) {
-      setError(
-        err?.response?.data?.message || "Unable to load KYC case detail."
-      );
+      setError(err?.response?.data?.message || "Unable to load KYC case detail.");
     } finally {
       if (!silent) {
         setIsLoading(false);
@@ -88,137 +108,122 @@ export default function ReviewerCaseDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kycId]);
 
+  const navItems = buildNavItems();
+
   if (isLoading) {
     return (
-      <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-6xl rounded-[2rem] bg-white p-8 shadow-sm">
-          <div className="flex items-center gap-3 text-gray-600">
+      <StaffLayout title="KYC case" active="cases" navItems={navItems}>
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="flex items-center gap-3 text-slate-600">
             <Loader2 className="animate-spin" size={20} />
             Loading KYC review case...
           </div>
         </div>
-      </main>
+      </StaffLayout>
     );
   }
 
   if (error || !detail) {
     return (
-      <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-6xl rounded-[2rem] border border-red-100 bg-red-50 p-8">
+      <StaffLayout title="KYC case" active="cases" navItems={navItems}>
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-8">
           <p className="text-sm font-semibold text-red-700">
             {error || "Case not found."}
           </p>
-
           <Link
             to="/reviewer/cases"
-            className="mt-6 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-navy px-5 py-3 text-sm font-semibold text-white"
           >
             <ArrowLeft size={16} />
             Back to cases
           </Link>
         </div>
-      </main>
+      </StaffLayout>
     );
   }
 
   const kyc = detail.case;
 
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-7xl">
-        <header className="rounded-[2rem] border border-white/80 bg-white/80 p-6 shadow-sm backdrop-blur-xl">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <Link
-                to="/reviewer/cases"
-                className="inline-flex items-center gap-2 text-sm font-semibold text-gray-500 hover:text-gray-950"
-              >
-                <ArrowLeft size={16} />
-                Back to cases
-              </Link>
-
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <ReviewerBadge status={kyc.overallStatus} />
-                <ReviewerBadge status="default" label={kyc.currentStage} />
-              </div>
-
-              <h1 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
-                {kyc.buyerName}
-              </h1>
-
-              <p className="mt-2 text-sm leading-6 text-gray-500">
-                {kyc.entityLabel} • {kyc.serviceType} • {kyc.pan || kyc.panMasked}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={loadDetail}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-            >
-              <RefreshCcw size={16} />
-              Refresh case
-            </button>
-          </div>
-        </header>
-
-        <section className="mt-6 rounded-[2rem] border border-gray-200/80 bg-white p-2 shadow-sm">
-          <div className="flex flex-wrap gap-2">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.key;
-
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${
-                    active
-                      ? "bg-gray-950 text-white shadow-sm"
-                      : "text-gray-600 hover:bg-gray-100"
-                  }`}
-                >
-                  <Icon size={16} />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <div className="mt-6">
-          {activeTab === "overview" && (
-            <OverviewTab detail={detail} reload={loadDetail} />
-          )}
-
-          {activeTab === "documents" && (
-            <div className="space-y-5">
-              {detail.documents.map((document) => (
-                <DocumentReviewCard
-                  key={document.id}
-                  document={document}
-                  caseStatus={kyc.overallStatus}
-                  onReviewed={refreshCaseSilently}
-                />
-              ))}
-            </div>
-          )}
-
-          {activeTab === "video" && (
-            <VideoReviewCard
-              videoDeclaration={detail.videoDeclaration}
-              caseStatus={kyc.overallStatus}
-              onReviewed={refreshCaseSilently}
-            />
-          )}
-
-          {activeTab === "audit" && (
-            <AuditTimeline logs={detail.auditLogs || []} />
-          )}
-        </div>
+    <StaffLayout
+      title={kyc.buyerName}
+      subtitle={`${kyc.entityLabel} • ${kyc.serviceType} • ${kyc.pan || kyc.panMasked}`}
+      active="cases"
+      navItems={navItems}
+      actions={
+        <button
+          type="button"
+          onClick={loadDetail}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          <RefreshCcw size={15} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
+      }
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Link
+          to="/reviewer/cases"
+          className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-navy"
+        >
+          <ArrowLeft size={16} />
+          Back to cases
+        </Link>
+        <span className="text-slate-300">•</span>
+        <ReviewerBadge status={kyc.overallStatus} />
+        <ReviewerBadge status="default" label={kyc.currentStage} />
       </div>
-    </main>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="flex flex-wrap gap-2">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.key;
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                  active ? "bg-navy text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <Icon size={16} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="mt-6">
+        {activeTab === "overview" && <OverviewTab detail={detail} reload={loadDetail} />}
+
+        {activeTab === "documents" && (
+          <div className="space-y-5">
+            {detail.documents.map((document) => (
+              <DocumentReviewCard
+                key={document.id}
+                document={document}
+                caseStatus={kyc.overallStatus}
+                onReviewed={refreshCaseSilently}
+              />
+            ))}
+          </div>
+        )}
+
+        {activeTab === "video" && (
+          <VideoReviewCard
+            videoDeclaration={detail.videoDeclaration}
+            caseStatus={kyc.overallStatus}
+            onReviewed={refreshCaseSilently}
+          />
+        )}
+
+        {activeTab === "audit" && <AuditTimeline logs={detail.auditLogs || []} />}
+      </div>
+    </StaffLayout>
   );
 }
 
@@ -235,17 +240,15 @@ function OverviewTab({ detail, reload }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-      <section className="rounded-[2rem] border border-gray-200/80 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gray-50 text-gray-700">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-700">
             <ShieldCheck size={20} />
           </div>
 
           <div>
-            <h2 className="text-base font-semibold text-gray-950">
-              KYC summary
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
+            <h2 className="text-base font-semibold text-navy">KYC summary</h2>
+            <p className="mt-1 text-sm text-slate-500">
               Buyer and verification overview
             </p>
           </div>
@@ -260,13 +263,13 @@ function OverviewTab({ detail, reload }) {
           <Info label="Mobile" value={kyc.buyerMobile || "—"} />
         </div>
 
-        <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+        <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
             Consent
           </p>
 
           {detail.consent ? (
-            <p className="mt-2 text-sm leading-6 text-gray-700">
+            <p className="mt-2 text-sm leading-6 text-slate-700">
               Accepted {detail.consent.consentVersion} in{" "}
               {detail.consent.language?.toUpperCase()} at{" "}
               {formatDateTime(detail.consent.acceptedAt)}
@@ -278,10 +281,8 @@ function OverviewTab({ detail, reload }) {
       </section>
 
       <aside className="space-y-5">
-        <section className="rounded-[2rem] border border-gray-200/80 bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-950">
-            Review progress
-          </h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold text-navy">Review progress</h2>
 
           <div className="mt-5 grid gap-3">
             <ProgressRow
@@ -312,7 +313,8 @@ function OverviewTab({ detail, reload }) {
           readiness={{
             acceptedRequiredDocs: acceptedDocs.length,
             totalRequiredDocs: requiredDocs.length,
-            failedItemsCount: failedDocs.length + (videoStatus === "resubmission_required" ? 1 : 0),
+            failedItemsCount:
+              failedDocs.length + (videoStatus === "resubmission_required" ? 1 : 0),
             videoAccepted: videoStatus === "accepted"
           }}
           onDecision={reload}
@@ -326,22 +328,17 @@ function AutoChecksPanel({ checks }) {
   if (!checks.length) return null;
 
   return (
-    <section className="rounded-[2rem] border border-gray-200/80 bg-white p-6 shadow-sm">
-      <h2 className="text-base font-semibold text-gray-950">
-        Automated checks
-      </h2>
-      <p className="mt-1 text-xs leading-5 text-gray-500">
+    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 className="text-base font-semibold text-navy">Automated checks</h2>
+      <p className="mt-1 text-xs leading-5 text-slate-500">
         Advisory only — final decisions are always manual.
       </p>
 
       <div className="mt-4 space-y-2">
         {checks.map((check) => (
-          <div
-            key={check.id}
-            className="rounded-2xl bg-gray-50 p-4"
-          >
+          <div key={check.id} className="rounded-2xl bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold capitalize text-gray-800">
+              <p className="text-sm font-semibold capitalize text-slate-800">
                 {check.checkKey.replaceAll("_", " ")}
                 {typeof check.score === "number" ? ` (${check.score}%)` : ""}
               </p>
@@ -352,7 +349,7 @@ function AutoChecksPanel({ checks }) {
             </div>
 
             {check.details?.message && (
-              <p className="mt-1.5 text-xs leading-5 text-gray-500">
+              <p className="mt-1.5 text-xs leading-5 text-slate-500">
                 {check.details.message}
               </p>
             )}
@@ -365,21 +362,19 @@ function AutoChecksPanel({ checks }) {
 
 function Info({ label, value }) {
   return (
-    <div className="rounded-2xl bg-gray-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
         {label}
       </p>
-      <p className="mt-2 truncate text-sm font-semibold text-gray-950">
-        {value || "—"}
-      </p>
+      <p className="mt-2 truncate text-sm font-semibold text-navy">{value || "—"}</p>
     </div>
   );
 }
 
 function ProgressRow({ label, value, ok }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl bg-gray-50 p-4">
-      <p className="text-sm font-semibold text-gray-700">{label}</p>
+    <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4">
+      <p className="text-sm font-semibold text-slate-700">{label}</p>
       <ReviewerBadge status={ok ? "accepted" : "under_review"} label={value} />
     </div>
   );

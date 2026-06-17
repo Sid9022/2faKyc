@@ -1,10 +1,24 @@
 @import "tailwindcss";
 
-:root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
-  color: #111827;
-  background: #f5f5f7;
+
+  /* Brand palette — Tailwind v4 auto-generates utilities (bg-navy, text-accent,
+     ring-resubmit, etc.) from these color tokens. */
+  --color-navy: #0f172a;
+  --color-canvas: #f8fafc;
+  --color-success: #22c55e;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-accent: #3b82f6;
+  --color-resubmit: #8b5cf6;
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: #0f172a;
+  background: #f8fafc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -19,10 +33,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(219, 234, 254, 0.55), transparent 32rem),
-    radial-gradient(circle at top right, rgba(243, 244, 246, 0.85), transparent 30rem),
-    #f5f5f7;
+  background: #f8fafc;
 }
 
 button {
@@ -31,5 +42,5 @@ button {
 
 ::selection {
   background: #dbeafe;
-  color: #111827;
+  color: #0f172a;
 }

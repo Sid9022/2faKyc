@@ -58,17 +58,17 @@ export default function FinalDecisionPanel({
   }
 
   return (
-    <section className="rounded-[2rem] border border-gray-200/80 bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gray-50 text-gray-700">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-gray-700">
           <ShieldCheck size={20} />
         </div>
 
         <div>
-          <h2 className="text-base font-semibold text-gray-950">
+          <h2 className="text-base font-semibold text-navy">
             Final decision
           </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500">
+          <p className="mt-1 text-sm leading-6 text-slate-500">
             Final approval unlocks only when all required documents and video are accepted.
           </p>
         </div>
@@ -95,7 +95,7 @@ export default function FinalDecisionPanel({
       </div>
 
       {isClosed && (
-        <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-medium text-gray-600">
+        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-medium text-slate-600">
           This KYC is already {caseStatus}. Final action is locked.
         </div>
       )}
@@ -111,7 +111,7 @@ export default function FinalDecisionPanel({
               )
             }
             disabled={!canApprove || isSubmitting}
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-100 transition active:scale-[0.98] hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-success px-5 py-3 text-sm font-semibold text-white transition active:scale-[0.98] hover:bg-success/90 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isSubmitting && !mode ? (
               <Loader2 className="animate-spin" size={17} />
@@ -122,7 +122,7 @@ export default function FinalDecisionPanel({
           </button>
 
           {!canApprove && (
-            <p className="mt-2 text-xs leading-5 text-gray-500">
+            <p className="mt-2 text-xs leading-5 text-slate-500">
               Accept all required documents and video before final approval.
             </p>
           )}
@@ -140,10 +140,10 @@ export default function FinalDecisionPanel({
                 setError("");
               }}
               disabled={!canAskResubmission || isSubmitting}
-              className={`inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
                 mode === "resubmission_required"
-                  ? "bg-orange-600 text-white shadow-lg shadow-orange-100"
-                  : "border border-orange-200 bg-white text-orange-700 hover:bg-orange-50"
+                  ? "bg-resubmit text-white"
+                  : "border border-violet-200 bg-white text-violet-700 hover:bg-violet-50"
               }`}
             >
               <RotateCcw size={17} />
@@ -158,9 +158,9 @@ export default function FinalDecisionPanel({
                 setError("");
               }}
               disabled={isSubmitting}
-              className={`inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
                 mode === "rejected"
-                  ? "bg-red-600 text-white shadow-lg shadow-red-100"
+                  ? "bg-danger text-white"
                   : "border border-red-200 bg-white text-red-700 hover:bg-red-50"
               }`}
             >
@@ -170,14 +170,14 @@ export default function FinalDecisionPanel({
           </div>
 
           {!canAskResubmission && (
-            <p className="mt-2 text-xs leading-5 text-gray-500">
+            <p className="mt-2 text-xs leading-5 text-slate-500">
               Mark at least one document/video for resubmission before using resubmission final decision.
             </p>
           )}
 
           {mode && (
-            <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <label className="text-xs font-bold uppercase tracking-[0.16em] text-gray-500">
+            <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <label className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
                 {mode === "rejected"
                   ? "Rejection reason"
                   : "Resubmission reason"}
@@ -192,17 +192,17 @@ export default function FinalDecisionPanel({
                     ? "Explain why this KYC is rejected..."
                     : "Explain what the buyer needs to correct..."
                 }
-                className="mt-2 w-full resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-gray-400"
+                className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-gray-400"
               />
 
               <button
                 type="button"
                 onClick={() => submitFinalDecision(mode, remarks)}
                 disabled={isSubmitting || remarks.trim().length < 3}
-                className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-lg transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none sm:w-auto ${
+                className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto ${
                   mode === "rejected"
-                    ? "bg-red-600 shadow-red-100 hover:bg-red-700"
-                    : "bg-orange-600 shadow-orange-100 hover:bg-orange-700"
+                    ? "bg-danger hover:bg-danger/90"
+                    : "bg-resubmit hover:bg-resubmit/90"
                 }`}
               >
                 {isSubmitting && <Loader2 className="animate-spin" size={17} />}
@@ -214,7 +214,7 @@ export default function FinalDecisionPanel({
       )}
 
       {message && (
-        <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-medium text-emerald-700">
+        <div className="mt-4 rounded-2xl border border-green-100 bg-green-50 p-4 text-sm font-medium text-green-700">
           {message}
         </div>
       )}
@@ -230,10 +230,10 @@ export default function FinalDecisionPanel({
 
 function ReadinessRow({ label, value, ok }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl bg-gray-50 p-4">
+    <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4">
       <div>
-        <p className="text-sm font-semibold text-gray-800">{label}</p>
-        <p className="mt-1 text-xs text-gray-500">Required before final decision</p>
+        <p className="text-sm font-semibold text-slate-800">{label}</p>
+        <p className="mt-1 text-xs text-slate-500">Required before final decision</p>
       </div>
 
       <ReviewerBadge

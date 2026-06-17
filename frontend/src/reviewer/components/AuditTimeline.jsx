@@ -11,6 +11,7 @@ import {
   Video,
   XCircle
 } from "lucide-react";
+import { statusClasses, formatStatusLabel } from "../../components/statusStyles";
 
 const ACTION_ICONS = [
   { match: /approved|accepted/, icon: CheckCircle2, color: "text-emerald-600 bg-emerald-50" },
@@ -41,31 +42,21 @@ function actionVisual(action = "") {
 }
 
 function StatusChip({ status }) {
-  const styles = {
-    approved: "bg-emerald-50 text-emerald-700",
-    accepted: "bg-emerald-50 text-emerald-700",
-    rejected: "bg-red-50 text-red-700",
-    resubmission_required: "bg-orange-50 text-orange-700",
-    submitted: "bg-blue-50 text-blue-700",
-    under_review: "bg-amber-50 text-amber-700",
-    in_progress: "bg-indigo-50 text-indigo-700"
-  };
-
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
-        styles[status] || "bg-gray-100 text-gray-600"
-      }`}
+      className={`rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ring-1 ring-inset ${statusClasses(
+        status
+      )}`}
     >
-      {String(status).replaceAll("_", " ")}
+      {formatStatusLabel(status)}
     </span>
   );
 }
 
 export default function AuditTimeline({ logs = [] }) {
   return (
-    <section className="rounded-[2rem] border border-gray-200/80 bg-white p-6 shadow-sm">
-      <h2 className="text-base font-semibold text-gray-950">Audit timeline</h2>
+    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 className="text-base font-semibold text-navy">Audit timeline</h2>
       <p className="mt-1 text-sm text-gray-500">
         Complete trail of buyer, system, and reviewer actions — newest first.
       </p>
