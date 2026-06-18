@@ -875,6 +875,29 @@ function VideoCameraStep({
   );
 }
 
+/**
+ * Tracks whether the viewport is below Tailwind's `sm` breakpoint (640px).
+ * Used so the recording step mounts EITHER the desktop frame OR the mobile
+ * recorder — never both. Mounting both makes their two <video> elements share
+ * one `videoRef`, and React keeps only the last-mounted (mobile) element, so
+ * the desktop frame would render black.
+ */
+function useIsMobile() {
+  const query = "(max-width: 639px)";
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const handler = (event) => setIsMobile(event.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return isMobile;
+}
+
 function VideoRecordingStep({
   t,
   declaration,
@@ -887,72 +910,14 @@ function VideoRecordingStep({
   faceState,
   onBack
 }) {
-  return (
-    <div>
-      {/* Status pills + heading are desktop/tablet only.
-          Mobile is fully consumed by <MobileRecorderView />. */}
-      <div className="hidden sm:block">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status="active" label="Camera ready" />
-          <StatusPill
-            status="pending"
-            label={isRecording ? "Recording" : "Ready to record"}
-          />
-        </div>
+  const isMobile = useIsMobile();
 
-        <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
-          Record your video declaration
-        </h1>
-
-        <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
-          Click Start Recording, then read the script at the top of the video.
-          Make sure to read the runtime verification code clearly.
-        </p>
-
-        <LiveCameraFrame
-          videoRef={videoRef}
-          canvasRef={canvasRef}
-          declaration={declaration}
-          showScript={true}
-        />
-
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          {!isRecording ? (
-            <button
-              type="button"
-              onClick={startRecording}
-              disabled={!canStartRecording}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-100 transition hover:-translate-y-0.5 hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
-            >
-              <Video size={17} />
-              {t.startRecording}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={stopRecording}
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black"
-            >
-              <CircleStop size={17} />
-              {t.stopRecording}
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onBack}
-            disabled={isRecording}
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
-          >
-            <ArrowLeft size={17} />
-            {t.back}
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile: a single, all-in-one recorder view (header + frame + record button
-          are baked into one screen so the user never has to scroll). */}
-      <div className="sm:hidden">
+  // Mobile: a single, all-in-one recorder view (header + frame + record button
+  // are baked into one screen so the user never has to scroll). Rendered alone
+  // so its <video> is the only one holding `videoRef`.
+  if (isMobile) {
+    return (
+      <div>
         <MobileRecorderView
           t={t}
           declaration={declaration}
@@ -964,6 +929,67 @@ function VideoRecordingStep({
           stopRecording={stopRecording}
           onBack={onBack}
         />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill status="active" label="Camera ready" />
+        <StatusPill
+          status="pending"
+          label={isRecording ? "Recording" : "Ready to record"}
+        />
+      </div>
+
+      <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
+        Record your video declaration
+      </h1>
+
+      <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
+        Click Start Recording, then read the script at the top of the video.
+        Make sure to read the runtime verification code clearly.
+      </p>
+
+      <LiveCameraFrame
+        videoRef={videoRef}
+        canvasRef={canvasRef}
+        declaration={declaration}
+        showScript={true}
+      />
+
+      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        {!isRecording ? (
+          <button
+            type="button"
+            onClick={startRecording}
+            disabled={!canStartRecording}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-100 transition hover:-translate-y-0.5 hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+          >
+            <Video size={17} />
+            {t.startRecording}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={stopRecording}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black"
+          >
+            <CircleStop size={17} />
+            {t.stopRecording}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={isRecording}
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+        >
+          <ArrowLeft size={17} />
+          {t.back}
+        </button>
       </div>
     </div>
   );
