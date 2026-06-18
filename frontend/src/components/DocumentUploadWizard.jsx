@@ -467,6 +467,12 @@ export default function DocumentUploadWizard({
 
   return (
     <div className="space-y-6 pb-28 sm:pb-0">
+      {isSaving && (
+        <UploadLoadingOverlay
+          documentName={activeStep?.documentName}
+          language={language}
+        />
+      )}
       {/* Mobile: compact header — chips + step progress only */}
       <div className="flex flex-wrap items-center gap-2 sm:hidden">
         <StatusPill status="active" label={`${savedRequiredCount}/${requiredCount} saved`} />
@@ -811,7 +817,7 @@ function FileInputCard({
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:rounded-2xl sm:p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm sm:h-11 sm:w-11 sm:rounded-2xl ${
               hasSavedFile
@@ -852,7 +858,7 @@ function FileInputCard({
             </p>
 
             {currentFile && (
-              <div className="mt-3 rounded-xl border border-emerald-100 bg-white px-3 py-2">
+              <div className="mt-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 w-full">
                 <p className="text-xs font-semibold text-slate-500">
                   Current saved file
                 </p>
@@ -862,16 +868,16 @@ function FileInputCard({
                     href={`${API_BASE_URL}${currentFile.fileUrl}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 shrink-0"
                   >
                     View file
                   </a>
 
-                  <span className="max-w-[220px] truncate text-xs text-slate-700">
+                  <span className="truncate text-xs text-slate-700 flex-1 min-w-0" title={currentFile.originalName}>
                     {currentFile.originalName}
                   </span>
 
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-400 shrink-0">
                     v{currentFile.version}
                   </span>
                 </div>
@@ -879,12 +885,12 @@ function FileInputCard({
             )}
 
             {selectedFile && (
-              <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+              <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 w-full">
                 <p className="text-xs font-semibold text-blue-700">
                   New file selected, not uploaded yet
                 </p>
 
-                <p className="mt-1 max-w-[280px] truncate text-xs text-blue-900">
+                <p className="mt-1 truncate text-xs text-blue-900" title={selectedFile.name}>
                   {selectedFile.name}
                 </p>
 
@@ -896,7 +902,7 @@ function FileInputCard({
           </div>
         </div>
 
-        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50">
+        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50 shrink-0">
           <UploadCloud size={16} />
           {buttonLabel}
           <input
@@ -931,4 +937,67 @@ function formatDateTime(dateString) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(dateString));
+}
+
+function UploadLoadingOverlay({ documentName, language }) {
+  const [msgIndex, setMsgIndex] = useState(0);
+
+  const messages = useMemo(() => {
+    if (language === "hi") {
+      return [
+        "दस्तावेज़ अपलोड हो रहा है...",
+        "सत्यापन प्रक्रिया चल रही है (OCR)...",
+        "धुंधलेपन और रोशनी की जांच हो रही है...",
+        "गोपनीयता और डेटा सुरक्षित कर रहे हैं...",
+        "बस कुछ ही पल और..."
+      ];
+    }
+    return [
+      "Uploading secure document packets...",
+      "Analyzing document structure via OCR...",
+      "Verifying security and authenticity...",
+      "Encrypting details for reviewer console...",
+      "Almost done, wrapping up validation..."
+    ];
+  }, [language]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMsgIndex((prev) => (prev + 1) % messages.length);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [messages.length]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 backdrop-blur-md p-4 animate-fade-in">
+      <div className="w-full max-w-md rounded-3xl border border-white/20 bg-slate-900/95 p-8 text-center text-white shadow-2xl backdrop-blur-xl">
+        {/* Scanning Animation Visual */}
+        <div className="relative mx-auto mb-6 flex h-24 w-40 items-center justify-center rounded-2xl border border-white/10 bg-white/5 overflow-hidden shadow-inner">
+          <FileText size={40} className="text-white/40 animate-pulse" />
+          
+          {/* Neon scan line */}
+          <div className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-accent to-transparent shadow-[0_0_12px_#3b82f6] animate-scan" />
+          
+          <div className="absolute top-2 right-2 rounded-full bg-accent/20 p-1 text-accent animate-pulse">
+            <ShieldCheck size={12} />
+          </div>
+        </div>
+
+        <h3 className="text-lg font-bold tracking-tight text-white flex items-center justify-center gap-2.5">
+          <Loader2 className="animate-spin text-accent" size={18} />
+          {language === "hi" ? `सत्यापित कर रहे हैं: ${documentName}` : `Validating: ${documentName}`}
+        </h3>
+
+        <div className="mt-4 h-6 flex items-center justify-center">
+          <p className="text-sm font-semibold text-slate-300 animate-pulse transition-all duration-300">
+            {messages[msgIndex]}
+          </p>
+        </div>
+
+        <div className="mx-auto mt-6 h-1.5 w-32 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full bg-accent origin-left animate-loading-bar rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
 }

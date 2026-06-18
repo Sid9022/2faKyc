@@ -52,3 +52,54 @@ button {
   background: #dbeafe;
   color: #0f172a;
 }
+
+/* Custom Animations for File Upload Scanner Overlay */
+@keyframes scan-up-down {
+  0%, 100% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+}
+
+@keyframes loading-progress {
+  0% {
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  50% {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+  50.1% {
+    transform: scaleX(1);
+    transform-origin: right;
+  }
+  100% {
+    transform: scaleX(0);
+    transform-origin: right;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-scan {
+  animation: scan-up-down 2s ease-in-out infinite;
+}
+
+.animate-loading-bar {
+  animation: loading-progress 2.5s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out forwards;
+}
+
