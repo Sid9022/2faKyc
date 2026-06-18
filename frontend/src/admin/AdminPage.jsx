@@ -22,6 +22,16 @@ import {
   XCircle
 } from "lucide-react";
 import {
+  BarChart as RechartsBarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from "recharts";
+import {
   createAdminRequirement,
   createAdminUser,
   getAdminDashboard,
@@ -38,7 +48,6 @@ import {
 import StaffLayout from "../components/layout/StaffLayout";
 import StatCard from "../components/ui/StatCard";
 import SectionCard from "../components/ui/SectionCard";
-import BarChart from "../components/ui/BarChart";
 import DataTable from "../components/ui/DataTable";
 import { statusClasses, formatStatusLabel } from "../components/statusStyles";
 
@@ -181,18 +190,32 @@ const ACTOR_STYLES = {
   system: "bg-slate-100 text-slate-500"
 };
 
-const STATUS_CHART = [
-  { key: "link_sent", color: "#3B82F6" },
-  { key: "opened", color: "#3B82F6" },
-  { key: "in_progress", color: "#F59E0B" },
-  { key: "submitted", color: "#F59E0B" },
-  { key: "under_review", color: "#6366F1" },
-  { key: "approved", color: "#22C55E" },
-  { key: "resubmission_required", color: "#8B5CF6" },
-  { key: "rejected", color: "#EF4444" }
-];
+const WEEKLY_CHART_COLORS = {
+  submitted: "#3B82F6",
+  approved: "#22C55E",
+  rejected: "#EF4444"
+};
 
-const ACTIVITY_BAR_COLORS = ["#3B82F6", "#22C55E", "#F59E0B", "#8B5CF6", "#EF4444", "#6366F1"];
+const WORKLOAD_BAR_COLORS = ["#6366F1", "#3B82F6", "#22C55E", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6"];
+
+function WeeklyChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xl">
+      <p className="mb-2 text-sm font-bold text-navy">{label}</p>
+      {payload.map((entry) => (
+        <div key={entry.dataKey} className="flex items-center gap-2 text-sm">
+          <span
+            className="inline-block h-2.5 w-2.5 rounded-full"
+            style={{ backgroundColor: entry.color }}
+          />
+          <span className="capitalize text-slate-600">{entry.dataKey}</span>
+          <span className="ml-auto font-bold text-navy">{entry.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function OverviewTab({ onOpenCases }) {
   const [data, setData] = useState(null);
@@ -259,23 +282,15 @@ function OverviewTab({ onOpenCases }) {
     }
   ];
 
-  const chartData = STATUS_CHART.map((s) => ({
-    label: formatStatusLabel(s.key),
-    value: statuses[s.key] || 0,
-    color: s.color
-  })).filter((d) => d.value > 0);
+  const weeklyData = (data.weeklyReview || []).map((bucket) => ({
+    name: `${bucket.day}, ${bucket.date.slice(5)}`,
+    submitted: bucket.submitted,
+    approved: bucket.approved,
+    rejected: bucket.rejected
+  }));
 
-  const activityMap = {};
-  cases.forEach((item) => {
-    (item.reviewers || []).forEach((name) => {
-      activityMap[name] = (activityMap[name] || 0) + 1;
-    });
-  });
-  const reviewerRows = Object.entries(activityMap)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 6);
-  const maxActivity = Math.max(1, ...reviewerRows.map((r) => r.count));
+  const reviewerWorkload = data.reviewerWorkload || [];
+  const maxWorkload = Math.max(1, ...reviewerWorkload.map((r) => r.count));
 
   const recent = cases.slice(0, 8);
 
@@ -295,25 +310,71 @@ function OverviewTab({ onOpenCases }) {
         ))}
       </div>
 
-      {/* Chart + reviewer activity */}
+      {/* Weekly chart + reviewer workload */}
       <div className="grid gap-6 lg:grid-cols-3">
         <SectionCard
           className="lg:col-span-2"
-          title="KYC by status"
-          subtitle="Live distribution across the pipeline"
+          title="KYC submissions — last 7 days"
+          subtitle="Daily breakdown of submissions, approvals, and rejections"
         >
-          <BarChart data={chartData} height={240} />
+          {weeklyData.length === 0 ? (
+            <div
+              className="flex items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-400"
+              style={{ height: 280 }}
+            >
+              No data yet
+            </div>
+          ) : (
+            <div className="-ml-2" style={{ width: "calc(100% + 8px)" }}>
+              <ResponsiveContainer width="100%" height={280}>
+                <RechartsBarChart
+                  data={weeklyData}
+                  margin={{ top: 8, right: 8, bottom: 4, left: -12 }}
+                  barCategoryGap="22%"
+                  barGap={3}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 12, fill: "#64748b", fontWeight: 500 }}
+                    axisLine={{ stroke: "#e2e8f0" }}
+                    tickLine={false}
+                    dy={6}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 12, fill: "#94a3b8" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={36}
+                  />
+                  <Tooltip content={<WeeklyChartTooltip />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
+                  <Legend
+                    iconType="circle"
+                    iconSize={8}
+                    wrapperStyle={{ fontSize: 12, fontWeight: 600, paddingTop: 12 }}
+                    formatter={(value) => (
+                      <span className="capitalize text-slate-600">{value}</span>
+                    )}
+                  />
+                  <Bar dataKey="submitted" name="Submitted" fill={WEEKLY_CHART_COLORS.submitted} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="approved" name="Approved" fill={WEEKLY_CHART_COLORS.approved} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="rejected" name="Rejected" fill={WEEKLY_CHART_COLORS.rejected} radius={[4, 4, 0, 0]} />
+                </RechartsBarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard
           title="Reviewer activity"
           subtitle="Cases each reviewer has acted on (not assignment)"
         >
-          {reviewerRows.length === 0 ? (
-            <p className="text-sm text-slate-400">No reviews yet.</p>
+          {reviewerWorkload.length === 0 ? (
+            <p className="text-sm text-slate-400">No active reviewers.</p>
           ) : (
             <div className="space-y-4">
-              {reviewerRows.map((row, index) => (
+              {reviewerWorkload.map((row, index) => (
                 <div key={row.name}>
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-semibold text-navy">{row.name}</span>
@@ -321,11 +382,11 @@ function OverviewTab({ onOpenCases }) {
                   </div>
                   <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className="h-full rounded-full transition-all"
+                      className="h-full rounded-full transition-all duration-500"
                       style={{
-                        width: `${Math.round((row.count / maxActivity) * 100)}%`,
+                        width: `${Math.round((row.count / maxWorkload) * 100)}%`,
                         backgroundColor:
-                          ACTIVITY_BAR_COLORS[index % ACTIVITY_BAR_COLORS.length]
+                          WORKLOAD_BAR_COLORS[index % WORKLOAD_BAR_COLORS.length]
                       }}
                     />
                   </div>

@@ -1,4 +1,4 @@
-﻿const bcrypt = require("bcryptjs");
+const bcrypt = require("bcryptjs");
 const { z } = require("zod");
 
 const prisma = require("../../config/prisma");
@@ -362,10 +362,104 @@ async function patchSettings(payload = {}, actorId) {
 
 // ---------- Dashboard ----------
 
+/**
+ * Weekly KYC status review — last 7 days bucketed by day.
+ *
+ * Source of truth is KycAuditLog: every status change writes a row with
+ * `newStatus` inside the same transaction (see invariants), so counting
+ * transitions to submitted/approved/rejected per day is accurate and needs
+ * no extra timestamp columns. Buckets are keyed on local server day.
+ */
+async function getWeeklyReview() {
+  const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+  // Start of day, 6 days ago → 7 buckets ending today (inclusive).
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - 6);
+
+  const buckets = [];
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(start.getTime() + i * MS_PER_DAY);
+    buckets.push({
+      date: d.toISOString().slice(0, 10),
+      day: DAY_LABELS[d.getDay()],
+      submitted: 0,
+      approved: 0,
+      rejected: 0
+    });
+  }
+
+  const logs = await prisma.kycAuditLog.findMany({
+    where: {
+      createdAt: { gte: start },
+      newStatus: { in: ["submitted", "approved", "rejected"] }
+    },
+    select: { newStatus: true, createdAt: true }
+  });
+
+  for (const log of logs) {
+    const day = new Date(log.createdAt);
+    day.setHours(0, 0, 0, 0);
+    const idx = Math.round((day.getTime() - start.getTime()) / MS_PER_DAY);
+    if (idx < 0 || idx > 6) continue;
+    if (log.newStatus === "submitted") buckets[idx].submitted += 1;
+    else if (log.newStatus === "approved") buckets[idx].approved += 1;
+    else if (log.newStatus === "rejected") buckets[idx].rejected += 1;
+  }
+
+  return buckets;
+}
+
+async function getReviewerWorkload() {
+  // Original logic: count total actions per reviewer (across all cases)
+  const allCases = await prisma.kycMaster.findMany({
+    select: {
+      documentSubmissions: {
+        where: { reviewedBy: { not: null } },
+        select: { reviewedBy: true }
+      },
+      videoDeclaration: {
+        select: { reviewedBy: true }
+      },
+      finalReviews: {
+        where: { reviewedBy: { not: null } },
+        select: { reviewedBy: true }
+      }
+    }
+  });
+
+  const countMap = {};
+  for (const c of allCases) {
+    const reviewers = new Set([
+      ...c.documentSubmissions.map((d) => d.reviewedBy),
+      c.videoDeclaration?.reviewedBy,
+      ...c.finalReviews.map((r) => r.reviewedBy)
+    ].filter(Boolean));
+    
+    for (const id of reviewers) {
+      countMap[id] = (countMap[id] || 0) + 1;
+    }
+  }
+
+  if (Object.keys(countMap).length === 0) return [];
+
+  const nameMap = await buildUserNameMap(Object.keys(countMap));
+
+  return Object.entries(countMap)
+    .map(([id, count]) => ({
+      name: nameMap.get(id)?.fullName || "Unknown",
+      count
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+}
+
 async function getDashboardStats() {
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const [byStatus, totalKycs, newThisWeek, totalEmails, failedEmails, recentAudit] =
+  const [byStatus, totalKycs, newThisWeek, totalEmails, failedEmails, recentAudit, weeklyReview, reviewerWorkload] =
     await Promise.all([
       prisma.kycMaster.groupBy({
         by: ["overallStatus"],
@@ -381,7 +475,9 @@ async function getDashboardStats() {
         include: {
           kyc: { select: { buyerName: true, panMasked: true } }
         }
-      })
+      }),
+      getWeeklyReview(),
+      getReviewerWorkload()
     ]);
 
   const nameMap = await buildUserNameMap(recentAudit.map((log) => log.actorId));
@@ -392,6 +488,8 @@ async function getDashboardStats() {
       byStatus.map((row) => [row.overallStatus, row._count._all])
     ),
     emails: { total: totalEmails, failed: failedEmails },
+    weeklyReview,
+    reviewerWorkload,
     recentAudit: recentAudit.map((log) => ({
       id: log.id,
       kycId: log.kycId,
