@@ -25,6 +25,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -34,6 +40,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: #f8fafc;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 button {

@@ -375,8 +375,8 @@ export default function DocumentUploadWizard({
 
   if (isLoading) {
     return (
-      <div className="rounded-[2.5rem] border border-white/80 bg-white/90 p-8 shadow-xl shadow-gray-200/70">
-        <div className="flex items-center gap-3 text-gray-600">
+      <div className="rounded-2xl border border-white/80 bg-white/90 p-8 shadow-xl shadow-gray-200/70">
+        <div className="flex items-center gap-3 text-slate-600">
           <Loader2 className="animate-spin" size={20} />
           Loading saved document progress...
         </div>
@@ -386,8 +386,8 @@ export default function DocumentUploadWizard({
 
   if (error && !workspace) {
     return (
-      <div className="rounded-[2.5rem] border border-red-100 bg-white p-8 shadow-xl shadow-red-100/60">
-        <p className="text-lg font-semibold text-gray-950">
+      <div className="rounded-2xl border border-red-100 bg-white p-8 shadow-xl shadow-red-100/60">
+        <p className="text-lg font-semibold text-navy">
           Unable to load documents
         </p>
         <p className="mt-2 text-sm leading-6 text-red-600">{error}</p>
@@ -406,28 +406,28 @@ export default function DocumentUploadWizard({
 
   if (isLocked) {
     return (
-      <div className="rounded-[2.5rem] border border-emerald-100 bg-white/90 p-8 shadow-xl shadow-emerald-100/60">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+      <div className="rounded-2xl border border-emerald-100 bg-white/90 p-8 shadow-xl shadow-emerald-100/60">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
           <CheckCircle2 size={28} />
         </div>
 
-        <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-gray-950">
+        <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-navy">
           {isResubmissionMode
             ? "Corrected documents submitted"
             : t.lockedTitle}
         </h1>
 
-        <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
+        <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
           {isResubmissionMode
             ? "Your corrected document has been submitted for review. Accepted items remain locked."
             : t.lockedText}
         </p>
 
-        <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Final submitted at
           </p>
-          <p className="mt-2 text-sm font-semibold text-gray-950">
+          <p className="mt-2 text-sm font-semibold text-navy">
             {formatDateTime(progress?.finalSubmittedAt)}
           </p>
         </div>
@@ -437,7 +437,7 @@ export default function DocumentUploadWizard({
             <button
               type="button"
               onClick={onResubmissionDone}
-              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black"
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black"
             >
               Back to correction summary
             </button>
@@ -445,7 +445,7 @@ export default function DocumentUploadWizard({
             <button
               type="button"
               onClick={onNextVideo}
-              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black"
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black"
             >
               <Video size={16} />
               Continue to video declaration
@@ -455,7 +455,7 @@ export default function DocumentUploadWizard({
           <button
             type="button"
             onClick={onBack}
-            className="mt-8 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             <ArrowLeft size={16} />
             {t.back}
@@ -466,23 +466,60 @@ export default function DocumentUploadWizard({
   }
 
   return (
-    <div className="rounded-[2.5rem] border border-white/80 bg-white/90 p-6 shadow-xl shadow-gray-200/70 backdrop-blur-xl sm:p-8 lg:p-10">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-6 pb-28 sm:pb-0">
+      {/* Mobile: compact header — chips + step progress only */}
+      <div className="flex flex-wrap items-center gap-2 sm:hidden">
+        <StatusPill status="active" label={`${savedRequiredCount}/${requiredCount} saved`} />
+        <StatusPill status="pending" label={`Step ${activeIndex + 1}/${steps.length}`} />
+      </div>
+
+      <div className="hidden flex-wrap items-center gap-2 sm:flex">
         <StatusPill status="active" label={`${savedRequiredCount}/${requiredCount} required saved`} />
         <StatusPill status="pending" label={`Step ${activeIndex + 1}/${steps.length}`} />
       </div>
 
-      <h1 className="mt-7 text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
+      <h1 className="mt-7 hidden text-2xl font-bold tracking-tight text-navy sm:block sm:text-3xl">
         {t.title}
       </h1>
 
-      <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
+      <p className="mt-4 hidden max-w-2xl text-sm leading-7 text-slate-500 sm:block">
         {t.subtitle}
       </p>
 
+      {/* Mobile: horizontal scrollable step chips — replaces the side panel */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:hidden">
+        {steps.map((step, index) => {
+          const saved = isStepSaved(step);
+          const isActive = activeIndex === index;
+          return (
+            <button
+              key={step.requirementId}
+              type="button"
+              onClick={() => goToStep(index)}
+              className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                isActive
+                  ? "border-navy bg-navy text-white shadow-sm"
+                  : saved
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              {saved && !isActive ? (
+                <CheckCircle2 size={12} />
+              ) : (
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold">
+                  {index + 1}
+                </span>
+              )}
+              <span className="max-w-[140px] truncate">{step.documentName}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="mt-8 grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
-        <aside className="rounded-[2rem] border border-gray-100 bg-gray-50/70 p-4">
-          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+        <aside className="hidden rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:block">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Document steps
           </p>
 
@@ -492,7 +529,7 @@ export default function DocumentUploadWizard({
                 key={step.requirementId}
                 type="button"
                 onClick={() => goToStep(index)}
-                className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition-all ${
+                className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${
                   activeIndex === index
                     ? "border-gray-950 bg-white shadow-sm"
                     : "border-transparent bg-transparent hover:bg-white"
@@ -502,17 +539,17 @@ export default function DocumentUploadWizard({
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                     isStepSaved(step)
                       ? "bg-emerald-50 text-emerald-700"
-                      : "bg-gray-200 text-gray-600"
+                      : "bg-gray-200 text-slate-600"
                   }`}
                 >
                   {isStepSaved(step) ? <CheckCircle2 size={16} /> : index + 1}
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-gray-950">
+                  <span className="block truncate text-sm font-semibold text-navy">
                     {step.documentName}
                   </span>
-                  <span className="mt-0.5 block text-xs text-gray-500">
+                  <span className="mt-0.5 block text-xs text-slate-500">
                     {step.isRequired ? t.required : t.optional} •{" "}
                     {step.status.replaceAll("_", " ")}
                   </span>
@@ -522,20 +559,20 @@ export default function DocumentUploadWizard({
           </div>
         </aside>
 
-        <section className="rounded-[2rem] border border-gray-100 bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           {activeStep && (
             <>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+                <div className="min-w-0">
+                  <p className="hidden text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 sm:block">
                     Current document
                   </p>
 
-                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-gray-950">
+                  <h2 className="mt-2 text-lg font-semibold tracking-tight text-navy sm:text-xl">
                     {activeStep.documentName}
                   </h2>
 
-                  <p className="mt-2 text-sm leading-6 text-gray-500">
+                  <p className="mt-2 hidden text-sm leading-6 text-slate-500 sm:block">
                     {getInputHelp(activeStep)}
                   </p>
                 </div>
@@ -568,37 +605,118 @@ export default function DocumentUploadWizard({
                 ))}
               </div>
 
-              <div className="mt-5">
-                <label className="text-sm font-semibold text-gray-950">
+              <div className="mt-4 hidden sm:block">
+                <label className="text-sm font-semibold text-navy">
                   {t.notes}
                 </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={t.notes}
-                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-white p-3 text-sm focus:border-gray-950 focus:outline-none"
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white p-3 text-sm focus:border-gray-950 focus:outline-none"
                   rows={3}
                 />
               </div>
 
+              <details className="mt-4 sm:hidden">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-navy">
+                  + Add notes (optional)
+                </summary>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder={t.notes}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white p-3 text-sm focus:border-gray-950 focus:outline-none"
+                  rows={2}
+                />
+              </details>
+
               {error && (
-                <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-medium text-red-700">
+                <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700 sm:p-4">
                   {error}
                 </div>
               )}
 
               {success && (
-                <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/75 p-4 text-sm font-medium text-emerald-800">
+                <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/75 p-3 text-sm font-medium text-emerald-800 sm:p-4">
                   {success}
                 </div>
               )}
 
-              <div className="mt-6 flex flex-wrap gap-3">
+              {/* Mobile: sticky bottom action bar with primary CTA */}
+              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-md sm:hidden"
+                style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+              >
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    disabled={isSaving || isFinalSubmitting}
+                    className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+
+                  {!activeStep.isRequired && (
+                    <button
+                      type="button"
+                      onClick={handleSkipOptional}
+                      disabled={isSaving || isFinalSubmitting}
+                      className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                    >
+                      {t.skip}
+                    </button>
+                  )}
+
+                  {canFinalSubmit ? (
+                    <button
+                      type="button"
+                      onClick={handleFinalSubmit}
+                      disabled={isSaving || isFinalSubmitting}
+                      className="inline-flex min-h-12 flex-[2] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                    >
+                      {isFinalSubmitting ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          {t.finalSubmitting}
+                        </>
+                      ) : (
+                        <>
+                          <Send size={16} />
+                          {t.finalSubmit}
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSaveAndNext}
+                      disabled={isSaving || isFinalSubmitting}
+                      className="inline-flex min-h-12 flex-[2] items-center justify-center gap-2 rounded-xl bg-navy px-3 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          {t.saving}
+                        </>
+                      ) : (
+                        <>
+                          {getSaveButtonLabel({ activeStep, selectedFiles, t })}
+                          <ArrowRight size={16} />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Desktop: inline action bar */}
+              <div className="mt-6 hidden flex-wrap gap-3 sm:flex">
                 <button
                   type="button"
                   onClick={handleSaveAndNext}
                   disabled={isSaving || isFinalSubmitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:bg-black disabled:bg-gray-300 disabled:shadow-none"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-black disabled:bg-gray-300 disabled:shadow-none"
                 >
                   {isSaving ? (
                     <>
@@ -618,7 +736,7 @@ export default function DocumentUploadWizard({
                     type="button"
                     onClick={handleSkipOptional}
                     disabled={isSaving || isFinalSubmitting}
-                    className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
                     {t.skip}
                   </button>
@@ -649,7 +767,7 @@ export default function DocumentUploadWizard({
                   type="button"
                   onClick={onBack}
                   disabled={isSaving || isFinalSubmitting}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
                   <ArrowLeft size={16} />
                   {t.back}
@@ -657,11 +775,11 @@ export default function DocumentUploadWizard({
               </div>
 
               {!canFinalSubmit ? (
-                <p className="mt-3 text-xs leading-5 text-gray-500">
+                <p className="mt-3 hidden text-xs leading-5 text-slate-500 sm:block">
                   Complete all required documents to enable final submission.
                 </p>
               ) : (
-                <p className="mt-3 text-xs leading-5 text-gray-500">
+                <p className="mt-3 hidden text-xs leading-5 text-slate-500 sm:block">
                   Final submit will lock editing. Review your saved files before submitting.
                 </p>
               )}
@@ -691,51 +809,51 @@ function FileInputCard({
       : chooseLabel;
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:rounded-2xl sm:p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex items-start gap-3">
           <div
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl shadow-sm ${
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm sm:h-11 sm:w-11 sm:rounded-2xl ${
               hasSavedFile
                 ? "bg-emerald-50 text-emerald-600"
-                : "bg-white text-gray-700"
+                : "bg-white text-slate-700"
             }`}
           >
             {hasSavedFile ? (
-              <CheckCircle2 size={20} />
+              <CheckCircle2 size={18} className="sm:h-5 sm:w-5" />
             ) : slot.accept?.includes("image") ? (
-              <ImagePlus size={20} />
+              <ImagePlus size={18} className="sm:h-5 sm:w-5" />
             ) : (
-              <FileText size={20} />
+              <FileText size={18} className="sm:h-5 sm:w-5" />
             )}
           </div>
 
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-gray-950">
+              <p className="text-sm font-semibold text-navy">
                 {slot.label}
               </p>
 
               {hasSavedFile && (
                 <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-100">
-                  Saved file
+                  Saved
                 </span>
               )}
 
               {hasSelectedFile && (
                 <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 ring-1 ring-blue-100">
-                  Ready to save
+                  Ready
                 </span>
               )}
             </div>
 
-            <p className="mt-1 text-xs leading-5 text-gray-500">
+            <p className="mt-1 hidden text-xs leading-5 text-slate-500 sm:block">
               JPG, PNG, WEBP, or PDF. Max 10 MB.
             </p>
 
             {currentFile && (
               <div className="mt-3 rounded-xl border border-emerald-100 bg-white px-3 py-2">
-                <p className="text-xs font-semibold text-gray-500">
+                <p className="text-xs font-semibold text-slate-500">
                   Current saved file
                 </p>
 
@@ -749,11 +867,11 @@ function FileInputCard({
                     View file
                   </a>
 
-                  <span className="max-w-[220px] truncate text-xs text-gray-700">
+                  <span className="max-w-[220px] truncate text-xs text-slate-700">
                     {currentFile.originalName}
                   </span>
 
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-slate-400">
                     v{currentFile.version}
                   </span>
                 </div>
@@ -778,7 +896,7 @@ function FileInputCard({
           </div>
         </div>
 
-        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:-translate-y-0.5 hover:bg-gray-50">
+        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50">
           <UploadCloud size={16} />
           {buttonLabel}
           <input

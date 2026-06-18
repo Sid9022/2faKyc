@@ -57,8 +57,8 @@ export default function ResubmissionPortal({
 
   if (isLoading) {
     return (
-      <section className="rounded-[2.5rem] border border-white/80 bg-white/90 p-8 shadow-xl shadow-gray-200/70">
-        <div className="flex items-center gap-3 text-gray-600">
+      <section className="rounded-2xl border border-white/80 bg-white/90 p-8 shadow-xl shadow-gray-200/70">
+        <div className="flex items-center gap-3 text-slate-600">
           <Loader2 className="animate-spin" size={20} />
           Loading correction details...
         </div>
@@ -68,12 +68,12 @@ export default function ResubmissionPortal({
 
   if (error) {
     return (
-      <section className="rounded-[2.5rem] border border-red-100 bg-white/90 p-8 shadow-xl shadow-red-100/60">
+      <section className="rounded-2xl border border-red-100 bg-white/90 p-8 shadow-xl shadow-red-100/60">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600">
           <AlertCircle size={26} />
         </div>
 
-        <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-gray-950">
+        <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-navy">
           Unable to load correction request
         </h1>
 
@@ -82,7 +82,7 @@ export default function ResubmissionPortal({
         <button
           type="button"
           onClick={onBack}
-          className="mt-8 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700"
+          className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
         >
           <ArrowLeft size={16} />
           Back
@@ -131,7 +131,7 @@ export default function ResubmissionPortal({
   }
 
   return (
-    <section className="rounded-[2.5rem] border border-white/80 bg-white/90 p-6 shadow-xl shadow-gray-200/70 backdrop-blur-xl sm:p-8 lg:p-10">
+    <section className="rounded-2xl space-y-6">
       <div className="flex flex-wrap items-center gap-2">
         <StatusPill status="pending" label="Correction required" />
         <StatusPill
@@ -142,11 +142,11 @@ export default function ResubmissionPortal({
 
       <div className="mt-7 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
         <div>
-          <h1 className="text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
+          <h1 className="text-2xl font-bold tracking-tight text-navy sm:text-3xl">
             Your KYC needs a small correction.
           </h1>
 
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
             Only the failed item is reopened. Accepted documents and accepted
             video declarations are locked, so you do not need to upload
             everything again.
@@ -173,8 +173,8 @@ export default function ResubmissionPortal({
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-gray-100 bg-gray-50/70 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             KYC summary
           </p>
 
@@ -214,14 +214,14 @@ export default function ResubmissionPortal({
           )}
 
           {!needsDocuments && !needsVideo && (
-            <div className="rounded-[2rem] border border-gray-100 bg-gray-50 p-5">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-start gap-3">
-                <Clock3 size={20} className="mt-0.5 text-gray-500" />
+                <Clock3 size={20} className="mt-0.5 text-slate-500" />
                 <div>
-                  <p className="text-sm font-semibold text-gray-950">
+                  <p className="text-sm font-semibold text-navy">
                     No action needed right now
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-gray-500">
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
                     Your correction status is currently under processing.
                   </p>
                 </div>
@@ -234,7 +234,7 @@ export default function ResubmissionPortal({
       <button
         type="button"
         onClick={onBack}
-        className="mt-8 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition active:scale-[0.98] hover:bg-gray-50"
+        className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition active:scale-[0.98] hover:bg-slate-50"
       >
         <ArrowLeft size={16} />
         Back
@@ -247,14 +247,14 @@ function LockedItemsCard({ acceptedDocuments, video }) {
   const videoAccepted = video?.status === "accepted";
 
   return (
-    <div className="rounded-[2rem] border border-emerald-100 bg-emerald-50/50 p-5">
+    <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-5">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-slate-200 shadow-sm text-emerald-600 shadow-sm">
           <ShieldCheck size={20} />
         </div>
 
         <div>
-          <h2 className="text-base font-semibold text-gray-950">
+          <h2 className="text-base font-semibold text-navy">
             Already accepted items
           </h2>
           <p className="mt-1 text-sm leading-6 text-emerald-600">
@@ -265,7 +265,7 @@ function LockedItemsCard({ acceptedDocuments, video }) {
 
       <div className="mt-5 space-y-3">
         {acceptedDocuments.length === 0 && !videoAccepted && (
-          <p className="rounded-2xl bg-white p-4 text-sm text-gray-500">
+          <p className="rounded-2xl bg-white p-4 text-sm text-slate-500">
             No accepted item yet.
           </p>
         )}
@@ -293,17 +293,17 @@ function LockedItemsCard({ acceptedDocuments, video }) {
 
 function CorrectionDocumentsCard({ documents, active, onCorrectDocuments }) {
   return (
-    <div className="rounded-[2rem] border border-orange-100 bg-orange-50/60 p-5">
+    <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-5">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-orange-600 shadow-sm">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-slate-200 shadow-sm text-orange-600 shadow-sm">
           <RotateCcw size={20} />
         </div>
 
         <div>
-          <h2 className="text-base font-semibold text-gray-950">
+          <h2 className="text-base font-semibold text-navy">
             Documents needing correction
           </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-600">
+          <p className="mt-1 text-sm leading-6 text-slate-600">
             Please correct only the listed document. Reviewer reason is shown
             below.
           </p>
@@ -320,7 +320,7 @@ function CorrectionDocumentsCard({ documents, active, onCorrectDocuments }) {
         type="button"
         onClick={onCorrectDocuments}
         disabled={!active}
-        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition active:scale-[0.98] hover:bg-black disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none sm:w-auto"
+        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98] hover:bg-black disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none sm:w-auto"
       >
         Correct documents
         <ArrowRight size={16} />
@@ -331,18 +331,18 @@ function CorrectionDocumentsCard({ documents, active, onCorrectDocuments }) {
 
 function CorrectionVideoCard({ video, active, disabled, onCorrectVideo }) {
   return (
-    <div className="rounded-[2rem] border border-orange-100 bg-orange-50/60 p-5">
+    <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-5">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-orange-600 shadow-sm">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-slate-200 shadow-sm text-orange-600 shadow-sm">
           <Video size={20} />
         </div>
 
         <div>
-          <h2 className="text-base font-semibold text-gray-950">
+          <h2 className="text-base font-semibold text-navy">
             Video declaration needs correction
           </h2>
 
-          <p className="mt-1 text-sm leading-6 text-gray-600">
+          <p className="mt-1 text-sm leading-6 text-slate-600">
             Record the declaration again using the new runtime code.
           </p>
         </div>
@@ -360,7 +360,7 @@ function CorrectionVideoCard({ video, active, disabled, onCorrectVideo }) {
       )}
 
       {disabled && (
-        <div className="mt-5 rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500">
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
           Complete document correction first. Video correction will unlock after
           corrected documents are submitted.
         </div>
@@ -370,7 +370,7 @@ function CorrectionVideoCard({ video, active, disabled, onCorrectVideo }) {
         type="button"
         onClick={onCorrectVideo}
         disabled={!active || disabled}
-        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition active:scale-[0.98] hover:bg-black disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none sm:w-auto"
+        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98] hover:bg-black disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none sm:w-auto"
       >
         Record video again
         <ArrowRight size={16} />
@@ -384,10 +384,10 @@ function CorrectionDocumentItem({ doc }) {
     <div className="rounded-2xl border border-orange-100 bg-white p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-gray-950">
+          <p className="text-sm font-semibold text-navy">
             {doc.documentName}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-slate-500">
             Version {doc.currentVersion} • Cycle {doc.resubmissionCycle}
           </p>
         </div>
@@ -408,7 +408,7 @@ function CorrectionDocumentItem({ doc }) {
 
       {doc.files?.length > 0 && (
         <div className="mt-4 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
             Current submitted file
           </p>
 
@@ -418,7 +418,7 @@ function CorrectionDocumentItem({ doc }) {
               href={`${API_BASE_URL}${file.fileUrl}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
             >
               <span className="truncate">{file.originalName}</span>
               <ExternalLink size={15} />
@@ -438,11 +438,11 @@ function LockedRow({ icon: Icon, title, subtitle }) {
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-gray-950">{title}</p>
-        <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>
+        <p className="truncate text-sm font-semibold text-navy">{title}</p>
+        <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
       </div>
 
-      <Icon size={17} className="text-gray-400" />
+      <Icon size={17} className="text-slate-400" />
     </div>
   );
 }
@@ -453,7 +453,7 @@ function SummaryTile({ label, value, tone }) {
       ? "bg-emerald-50 text-emerald-700"
       : tone === "warning"
         ? "bg-orange-50 text-orange-700"
-        : "bg-gray-50 text-gray-700";
+        : "bg-slate-50 text-slate-700";
 
   return (
     <div className={`rounded-2xl p-4 ${toneClass}`}>
@@ -468,10 +468,10 @@ function SummaryTile({ label, value, tone }) {
 function Info({ label, value }) {
   return (
     <div className="rounded-2xl bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
         {label}
       </p>
-      <p className="mt-2 truncate text-sm font-semibold text-gray-950">
+      <p className="mt-2 truncate text-sm font-semibold text-navy">
         {value || "—"}
       </p>
     </div>
@@ -483,7 +483,7 @@ function FinalState({ type, title, description, onBack }) {
   const isRejected = type === "rejected";
 
   return (
-    <section className="rounded-[2.5rem] border border-white/80 bg-white/90 p-8 text-center shadow-xl shadow-gray-200/70">
+    <section className="rounded-2xl border border-white/80 bg-white/90 p-8 text-center shadow-xl shadow-gray-200/70">
       <div
         className={`mx-auto flex h-14 w-14 items-center justify-center rounded-2xl ${
           isApproved
@@ -502,18 +502,18 @@ function FinalState({ type, title, description, onBack }) {
         )}
       </div>
 
-      <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-gray-950">
+      <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-navy">
         {title}
       </h1>
 
-      <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-gray-500">
+      <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-slate-500">
         {description}
       </p>
 
       <button
         type="button"
         onClick={onBack}
-        className="mt-8 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition active:scale-[0.98] hover:bg-gray-50"
+        className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition active:scale-[0.98] hover:bg-slate-50"
       >
         <ArrowLeft size={16} />
         Back

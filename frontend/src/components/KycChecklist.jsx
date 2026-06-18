@@ -1,30 +1,19 @@
-import {
-  BadgeCheck,
-  Camera,
-  FileText,
-  IdCard,
-  Video,
-  UploadCloud
-} from "lucide-react";
+import { BadgeCheck, Camera, FileText, IdCard, UploadCloud, Video } from "lucide-react";
 import StatusPill from "./StatusPill";
 
 function getIcon(inputMode, key) {
-  if (inputMode === "live_video" || key.includes("video")) {
+  if (inputMode === "live_video" || key?.includes("video")) {
     return Video;
   }
-
   if (inputMode?.includes("live_photo")) {
     return Camera;
   }
-
   if (key?.includes("pan")) {
     return IdCard;
   }
-
   if (inputMode?.includes("upload")) {
     return UploadCloud;
   }
-
   return FileText;
 }
 
@@ -36,57 +25,78 @@ function getInputLabel(inputMode) {
     upload_or_live_photo: "Upload or live photo",
     live_video: "Live video"
   };
-
   return map[inputMode] || "Required input";
 }
 
-export default function KycChecklist({ checklist = [] }) {
+/**
+ * Required-documents list.
+ * When `embedded` is true the component renders body-only — used inside a
+ * `SectionCard` whose own title/subtitle sits above this list.
+ */
+export default function KycChecklist({ checklist = [], embedded = false }) {
   const requiredCount = checklist.filter((item) => item.required).length;
   const optionalCount = checklist.filter((item) => !item.required).length;
 
-  return (
-    <section className="rounded-[2rem] border border-gray-200/80 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-gray-950">
-            Required documents
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-gray-500">
-            Keep these ready before starting. You will only upload what applies
-            to your entity type.
-          </p>
-        </div>
-
-        <div className="flex gap-2">
-          <StatusPill status="pending" label={`${requiredCount} required`} />
-          {optionalCount > 0 && (
-            <StatusPill status="default" label={`${optionalCount} optional`} />
-          )}
-        </div>
+  const header = !embedded ? (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight text-navy">
+          Required documents
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-slate-500">
+          Keep these ready before starting. You will only upload what applies
+          to your entity type.
+        </p>
       </div>
 
-      <div className="mt-6 space-y-3">
+      <div className="flex gap-2">
+        <StatusPill status="pending" label={`${requiredCount} required`} />
+        {optionalCount > 0 && (
+          <StatusPill status="default" label={`${optionalCount} optional`} />
+        )}
+      </div>
+    </div>
+  ) : (
+    <div className="flex flex-wrap gap-2">
+      <StatusPill status="pending" label={`${requiredCount} required`} />
+      {optionalCount > 0 && (
+        <StatusPill status="default" label={`${optionalCount} optional`} />
+      )}
+    </div>
+  );
+
+  return (
+    <section
+      className={
+        embedded
+          ? "space-y-3"
+          : "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      }
+    >
+      {!embedded ? header : null}
+
+      <div className={embedded ? "mt-3 space-y-3" : "mt-6 space-y-3"}>
         {checklist.map((item, index) => {
           const Icon = getIcon(item.inputMode, item.key);
 
           return (
             <div
               key={item.id || item.key}
-              className="group rounded-2xl border border-gray-100 bg-gray-50/70 p-4 transition-all hover:border-gray-200 hover:bg-white hover:shadow-sm"
+              className="group rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-white hover:shadow-sm"
             >
               <div className="flex items-start gap-4">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-gray-700 shadow-sm ring-1 ring-gray-100">
-                  <Icon size={20} />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-navy shadow-sm ring-1 ring-slate-200">
+                  <Icon size={18} />
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-950">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-navy">
                         {index + 1}. {item.label}
                       </p>
 
-                      <p className="mt-1 text-xs leading-5 text-gray-500">
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
                         {getInputLabel(item.inputMode)}
                         {item.needsFront && item.needsBack
                           ? " • Front and back required"
@@ -107,7 +117,7 @@ export default function KycChecklist({ checklist = [] }) {
                   </div>
                 </div>
 
-                <div className="hidden text-gray-300 transition group-hover:text-emerald-500 sm:block">
+                <div className="hidden text-slate-300 transition group-hover:text-emerald-500 sm:block">
                   <BadgeCheck size={18} />
                 </div>
               </div>

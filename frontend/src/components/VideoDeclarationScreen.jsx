@@ -7,7 +7,6 @@ import {
   CircleStop,
   FileVideo,
   Loader2,
-  Mic,
   RefreshCcw,
   RotateCcw,
   Send,
@@ -90,7 +89,8 @@ export default function VideoDeclarationScreen({
   token,
   language = "en",
   buyerName,
-  onBack
+  onBack,
+  onSubmitted
 }) {
   const t = content[language] || content.en;
 
@@ -571,6 +571,11 @@ export default function VideoDeclarationScreen({
       setScreen("done");
       await loadWorkspace();
       stopCamera();
+      // Notify the parent so the layout stepper advances to "done"
+      // (otherwise the progress bar stays at 75% on step 3 of 4).
+      if (typeof onSubmitted === "function") {
+        onSubmitted();
+      }
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -582,7 +587,7 @@ export default function VideoDeclarationScreen({
   }
 
   return (
-    <div className="rounded-[2.5rem] border border-white/80 bg-white/90 p-6 shadow-xl shadow-gray-200/70 backdrop-blur-xl sm:p-8 lg:p-10">
+    <div className="rounded-2xl space-y-6">
       {screen === "details" && (
         <VideoDetailsStep
           t={t}
@@ -656,21 +661,30 @@ function VideoDetailsStep({
   onBack
 }) {
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusPill status="active" label="Documents completed" />
-        <StatusPill status="pending" label="Video pending" />
+    <div className="pb-28 sm:pb-0">
+      {/* Desktop header */}
+      <div className="hidden sm:block">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill status="active" label="Documents completed" />
+          <StatusPill status="pending" label="Video pending" />
+        </div>
+
+        <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
+          Authorized person details
+        </h1>
+
+        <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
+          Enter the person details. Backend will generate a unique script and runtime code.
+        </p>
       </div>
 
-      <h1 className="mt-7 text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
-        Authorized person details
-      </h1>
+      {/* Mobile: compact header with progress */}
+      <div className="flex flex-wrap items-center gap-2 sm:hidden">
+        <StatusPill status="active" label="Docs done" />
+        <StatusPill status="pending" label="Fill details" />
+      </div>
 
-      <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
-        Enter the person details. Backend will generate a unique script and runtime code.
-      </p>
-
-      <div className="mt-8 max-w-2xl space-y-4">
+      <div className="mt-8 max-w-2xl space-y-3 sm:space-y-4">
         <Input
           label={t.fullName}
           value={form.declarantFullName}
@@ -699,12 +713,47 @@ function VideoDetailsStep({
         />
       </div>
 
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+      {/* Mobile: sticky bottom action bar */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-md sm:hidden"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+          >
+            <ArrowLeft size={16} />
+            {t.back}
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateScript}
+            disabled={isGenerating}
+            className="inline-flex min-h-12 flex-[2] items-center justify-center gap-2 rounded-xl bg-navy px-4 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="animate-spin" size={16} />
+                {t.generating}
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={16} />
+                {declaration ? "Regenerate" : t.generate}
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Desktop: inline action bar */}
+      <div className="mt-8 hidden flex-col gap-3 sm:flex-row sm:flex">
         <button
           type="button"
           onClick={handleGenerateScript}
           disabled={isGenerating}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black disabled:bg-gray-300"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black disabled:bg-gray-300"
         >
           {isGenerating ? (
             <>
@@ -722,7 +771,7 @@ function VideoDetailsStep({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700"
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700"
         >
           <ArrowLeft size={17} />
           {t.back}
@@ -750,11 +799,11 @@ function VideoCameraStep({
         <StatusPill status="pending" label="Camera check" />
       </div>
 
-      <h1 className="mt-7 text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
+      <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
         Camera readiness check
       </h1>
 
-      <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
+      <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
         Align your face in the center. We need a steady, clear picture to start recording.
       </p>
 
@@ -768,8 +817,8 @@ function VideoCameraStep({
           />
         </div>
 
-        <div className="rounded-[2rem] border border-gray-100 bg-gray-50 p-5">
-          <p className="text-sm font-semibold text-gray-950">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <p className="text-sm font-semibold text-navy">
             Status: {faceState.message}
           </p>
 
@@ -792,7 +841,7 @@ function VideoCameraStep({
           type="button"
           onClick={startCamera}
           disabled={isCameraStarting}
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
           {isCameraStarting ? (
             <Loader2 className="animate-spin" size={17} />
@@ -806,7 +855,7 @@ function VideoCameraStep({
           type="button"
           onClick={onContinue}
           disabled={!faceState.ready}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-gray-300 hover:bg-black disabled:bg-gray-300 disabled:shadow-none"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-black disabled:bg-gray-300 disabled:shadow-none"
         >
           Continue to recording
           <ArrowRight size={17} />
@@ -815,7 +864,7 @@ function VideoCameraStep({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700"
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700"
         >
           <ArrowLeft size={17} />
           {t.back}
@@ -839,59 +888,236 @@ function VideoRecordingStep({
 }) {
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusPill status="active" label="Camera ready" />
-        <StatusPill status="pending" label={isRecording ? "Recording" : "Ready to record"} />
+      {/* Status pills + heading are desktop/tablet only.
+          Mobile is fully consumed by <MobileRecorderView />. */}
+      <div className="hidden sm:block">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill status="active" label="Camera ready" />
+          <StatusPill
+            status="pending"
+            label={isRecording ? "Recording" : "Ready to record"}
+          />
+        </div>
+
+        <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
+          Record your video declaration
+        </h1>
+
+        <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
+          Click Start Recording, then read the script at the top of the video.
+          Make sure to read the runtime verification code clearly.
+        </p>
+
+        <LiveCameraFrame
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          declaration={declaration}
+          showScript={true}
+        />
+
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          {!isRecording ? (
+            <button
+              type="button"
+              onClick={startRecording}
+              disabled={!canStartRecording}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-100 transition hover:-translate-y-0.5 hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+            >
+              <Video size={17} />
+              {t.startRecording}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={stopRecording}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black"
+            >
+              <CircleStop size={17} />
+              {t.stopRecording}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={isRecording}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            <ArrowLeft size={17} />
+            {t.back}
+          </button>
+        </div>
       </div>
 
-      <h1 className="mt-7 text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
-        Record your video declaration
-      </h1>
+      {/* Mobile: a single, all-in-one recorder view (header + frame + record button
+          are baked into one screen so the user never has to scroll). */}
+      <div className="sm:hidden">
+        <MobileRecorderView
+          t={t}
+          declaration={declaration}
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          isRecording={isRecording}
+          canStartRecording={canStartRecording}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          onBack={onBack}
+        />
+      </div>
+    </div>
+  );
+}
 
-      <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
-        Click Start Recording, then read the script at the top of the video. Make sure to read the runtime verification code clearly.
-      </p>
+/**
+ * Mobile-only recording view. Mirrors the iPhone camera UX:
+ *   - back arrow + timer in a dark top bar
+ *   - script + code chip in a dark overlay strip
+ *   - big circular record button at the bottom (red square when active)
+ * Everything is inside the camera frame — no scrolling required.
+ */
+function MobileRecorderView({
+  t,
+  declaration,
+  videoRef,
+  canvasRef,
+  isRecording,
+  canStartRecording,
+  startRecording,
+  stopRecording,
+  onBack
+}) {
+  const [elapsed, setElapsed] = useState(0);
 
-      <LiveCameraFrame
-        videoRef={videoRef}
-        canvasRef={canvasRef}
-        declaration={declaration}
-        showScript={true}
-      />
+  useEffect(() => {
+    if (!isRecording) {
+      setElapsed(0);
+      return;
+    }
 
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-        {!isRecording ? (
-          <button
-            type="button"
-            onClick={startRecording}
-            disabled={!canStartRecording}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-100 transition hover:-translate-y-0.5 hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
-          >
-            <Video size={17} />
-            {t.startRecording}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={stopRecording}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-gray-300 transition hover:-translate-y-0.5 hover:bg-black"
-          >
-            <CircleStop size={17} />
-            {t.stopRecording}
-          </button>
-        )}
+    const startedAt = Date.now();
+    const tick = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
 
+    return () => clearInterval(tick);
+  }, [isRecording]);
+
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  const timeLabel = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-gray-950 shadow-xl">
+      {/* Top bar — back, timer, status */}
+      <div className="flex items-center justify-between bg-black/60 px-4 py-3 text-white">
         <button
           type="button"
           onClick={onBack}
           disabled={isRecording}
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700 disabled:opacity-50"
+          aria-label="Back"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 transition active:scale-95 disabled:opacity-40"
         >
-          <ArrowLeft size={17} />
-          {t.back}
+          <ArrowLeft size={18} />
         </button>
+
+        <div className="flex items-center gap-2">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              isRecording ? "bg-red-500 animate-pulse" : "bg-white/40"
+            }`}
+          />
+          <span className="text-sm font-bold tracking-wider tabular-nums">
+            {isRecording ? `REC ${timeLabel}` : "READY"}
+          </span>
+        </div>
+
+        <div className="w-9" />
+      </div>
+
+      {/* Camera area — 3:4 portrait, fills the phone screen */}
+      <div className="relative aspect-[3/4]">
+        {/* Script strip (full text, scrollable) */}
+        {declaration ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col gap-2 p-3">
+            <div className="flex items-center justify-center gap-2 self-center rounded-full bg-black/70 px-4 py-2 backdrop-blur-md">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/70">
+                Code
+              </span>
+              <span className="text-base font-black tracking-[0.18em] text-white tabular-nums">
+                {declaration.runtimeCode}
+              </span>
+            </div>
+
+            <div className="pointer-events-auto max-h-28 overflow-y-auto rounded-2xl bg-black/65 p-3 backdrop-blur-md">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">
+                Read clearly
+              </p>
+              <p className="mt-1 text-xs leading-5 text-white">
+                {declaration.scriptText}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Video element */}
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <canvas ref={canvasRef} className="hidden" />
+
+        {/* Bottom record button strip */}
+        <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 pb-5">
+          <RecordButton
+            isRecording={isRecording}
+            disabled={!canStartRecording && !isRecording}
+            onStart={startRecording}
+            onStop={stopRecording}
+          />
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * iPhone-camera-style record button.
+ * - Idle: outer ring + large red dot inside
+ * - Recording: red rounded square
+ * Tap toggles between start / stop.
+ */
+function RecordButton({ isRecording, disabled, onStart, onStop }) {
+  function handleClick() {
+    if (disabled) return;
+    if (isRecording) onStop();
+    else onStart();
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled}
+      aria-label={isRecording ? "Stop recording" : "Start recording"}
+      className={`relative flex h-20 w-20 items-center justify-center rounded-full border-4 border-white transition active:scale-95 ${
+        disabled
+          ? "opacity-40"
+          : isRecording
+            ? ""
+            : "hover:scale-105"
+      }`}
+    >
+      <span
+        className={`block transition-all duration-200 ${
+          isRecording
+            ? "h-7 w-7 rounded-[6px] bg-red-500"
+            : "h-14 w-14 rounded-full bg-red-500"
+        }`}
+      />
+    </button>
   );
 }
 
@@ -911,11 +1137,11 @@ function VideoPreviewStep({
     <div>
       <StatusPill status="active" label="Recording completed" />
 
-      <h1 className="mt-7 text-3xl font-semibold tracking-[-0.03em] text-gray-950 sm:text-4xl">
+      <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
         Review your video before final submit.
       </h1>
 
-      <p className="mt-4 max-w-2xl text-sm leading-7 text-gray-500">
+      <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
         Check your recording and quality report. You can retake before final submission.
       </p>
 
@@ -923,11 +1149,11 @@ function VideoPreviewStep({
         <video
           src={previewUrl}
           controls
-          className="aspect-video w-full rounded-[2rem] border border-gray-100 bg-black object-cover"
+          className="aspect-video w-full rounded-xl border border-slate-200 bg-black object-cover"
         />
 
-        <div className="rounded-[2rem] border border-gray-100 bg-gray-50 p-5">
-          <p className="text-sm font-semibold text-gray-950">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <p className="text-sm font-semibold text-navy">
             Quality report
           </p>
 
@@ -996,7 +1222,7 @@ function VideoPreviewStep({
           type="button"
           onClick={retake}
           disabled={isSubmitting}
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-semibold text-gray-700"
+          className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700"
         >
           <RotateCcw size={17} />
           {t.retake}
@@ -1009,23 +1235,23 @@ function VideoPreviewStep({
 function VideoDoneStep({ t, onBack }) {
   return (
     <div className="text-center py-6">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
         <CheckCircle2 size={28} />
       </div>
 
-      <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-gray-950">
+      <h1 className="mt-6 text-3xl font-semibold tracking-[-0.03em] text-navy">
         {t.completedTitle}
       </h1>
 
-      <p className="mt-4 mx-auto max-w-xl text-sm leading-7 text-gray-500">
+      <p className="mt-4 mx-auto max-w-xl text-sm leading-7 text-slate-500">
         {t.completedText}
       </p>
 
-      <div className="mt-6 mx-auto max-w-sm rounded-2xl border border-gray-100 bg-gray-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+      <div className="mt-6 mx-auto max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
           Current stage
         </p>
-        <p className="mt-2 text-sm font-semibold text-gray-950 text-center">
+        <p className="mt-2 text-sm font-semibold text-navy text-center">
           buyer submission completed
         </p>
       </div>
@@ -1033,7 +1259,7 @@ function VideoDoneStep({ t, onBack }) {
       <button
         type="button"
         onClick={onBack}
-        className="mt-8 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700"
+        className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
       >
         <ArrowLeft size={16} />
         {t.back}
@@ -1058,8 +1284,8 @@ function ScriptOverlay({ declaration }) {
           </p>
         </div>
 
-        <div className="shrink-0 rounded-2xl bg-white px-4 py-3 text-center text-gray-950">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
+        <div className="shrink-0 rounded-2xl bg-white px-4 py-3 text-center text-navy">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
             Code
           </p>
           <p className="mt-1 text-2xl font-black tracking-[0.16em]">
@@ -1074,14 +1300,14 @@ function ScriptOverlay({ declaration }) {
 function Input({ label, value, onChange, placeholder }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 sm:text-xs">
         {label}
       </span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mt-2 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-950 outline-none transition focus:border-gray-400"
+        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-navy outline-none transition focus:border-gray-400 sm:mt-2 sm:rounded-2xl sm:px-4 sm:py-3"
       />
     </label>
   );
@@ -1091,7 +1317,7 @@ function CheckItem({ label, ok }) {
   return (
     <div
       className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold ${
-        ok ? "bg-emerald-50 text-emerald-700" : "bg-white text-gray-500"
+        ok ? "bg-emerald-50 text-emerald-700" : "bg-white text-slate-500"
       }`}
     >
       {ok ? <CheckCircle2 size={15} /> : <RefreshCcw size={15} />}
@@ -1102,11 +1328,11 @@ function CheckItem({ label, ok }) {
 
 function MiniStat({ label, value }) {
   return (
-    <div className="rounded-xl bg-gray-50 p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-400">
+    <div className="rounded-xl bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
         {label}
       </p>
-      <p className="mt-1 text-sm font-bold text-gray-950">{value}</p>
+      <p className="mt-1 text-sm font-bold text-navy">{value}</p>
     </div>
   );
 }
@@ -1225,11 +1451,20 @@ function getFaceMessage(face) {
 }
 
 function LiveCameraFrame({ videoRef, canvasRef, declaration, showScript }) {
+  // 3:4 (portrait) on mobile so the user can see their face below the script.
+  // 16:9 (landscape) on sm+ screens so script + code sit beside the face.
+  // On mobile, the script is rendered OUTSIDE the frame (in <ScriptPrompt />)
+  // so the full text is readable. On sm+, a small overlay still floats on top.
   return (
-    <div className="mx-auto mt-6 w-full max-w-3xl overflow-hidden rounded-[2rem] border border-gray-100 bg-gray-950 shadow-xl shadow-gray-200/60">
-      <div className="relative aspect-video">
+    <div className="mx-auto mt-6 w-full max-w-3xl overflow-hidden rounded-xl border border-slate-200 bg-gray-950 shadow-xl shadow-gray-200/60">
+      <div className="relative aspect-[3/4] min-h-[420px] sm:aspect-video sm:min-h-0">
         {showScript && declaration && (
-          <CompactScriptOverlay declaration={declaration} />
+          <>
+            {/* Teleprompter overlay only on sm+; mobile uses ScriptPrompt above */}
+            <div className="hidden sm:block">
+              <CompactScriptOverlay declaration={declaration} />
+            </div>
+          </>
         )}
 
         <video
@@ -1246,25 +1481,59 @@ function LiveCameraFrame({ videoRef, canvasRef, declaration, showScript }) {
   );
 }
 
+/**
+ * Mobile-first script prompt — full text visible, big code badge.
+ * Renders above the camera frame on mobile, beside it on sm+.
+ */
+function ScriptPrompt({ declaration }) {
+  if (!declaration) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5 sm:px-5 sm:py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:text-[11px]">
+            Read clearly on camera
+          </p>
+        </div>
+
+        <div className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-center sm:px-4 sm:py-2">
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:text-[10px]">
+            Code
+          </p>
+          <p className="mt-0.5 text-base font-black tracking-[0.16em] text-navy sm:text-lg">
+            {declaration.runtimeCode}
+          </p>
+        </div>
+      </div>
+
+      <div className="max-h-40 overflow-y-auto px-4 py-3 sm:max-h-48 sm:px-5 sm:py-4">
+        <p className="text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
+          {declaration.scriptText}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function CompactScriptOverlay({ declaration }) {
   return (
-    <div className="absolute left-4 right-4 top-4 z-10 rounded-2xl border border-white/20 bg-black/70 p-3 text-white shadow-2xl backdrop-blur-md">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="absolute left-3 right-3 top-3 z-10 rounded-xl border border-white/20 bg-black/70 p-2.5 text-white shadow-2xl backdrop-blur-md sm:left-4 sm:right-4 sm:top-4 sm:rounded-2xl sm:p-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">
+          <p className="hidden text-[10px] font-bold uppercase tracking-[0.2em] text-white/60 sm:block">
             Read clearly
           </p>
-
-          <p className="mt-1 line-clamp-3 text-sm leading-6 text-white">
+          <p className="line-clamp-3 text-[11px] leading-snug text-white/90 sm:text-sm sm:leading-6">
             {declaration.scriptText}
           </p>
         </div>
 
-        <div className="shrink-0 rounded-xl bg-white px-4 py-2 text-center text-gray-950">
-          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-400">
+        <div className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-center text-navy sm:rounded-xl sm:px-4 sm:py-2">
+          <p className="text-[8px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:text-[9px]">
             Code
           </p>
-          <p className="mt-1 text-xl font-black tracking-[0.16em]">
+          <p className="mt-0.5 text-sm font-black tracking-[0.16em] sm:mt-1 sm:text-xl">
             {declaration.runtimeCode}
           </p>
         </div>
