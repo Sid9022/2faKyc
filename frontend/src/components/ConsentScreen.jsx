@@ -1,104 +1,87 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  ChevronRight,
-  Circle,
   Clock3,
   FileCheck2,
   LockKeyhole,
   ShieldCheck
 } from "lucide-react";
+import SectionCard from "./ui/SectionCard";
 
 const content = {
   en: {
-    stepLabel: "Consent",
-    stepOf: "Step {current} of {total}",
-    agree: "I agree",
-    doNotAgree: "I do not agree",
-    backToStep: "Previous",
+    title: "Consent",
+    subtitle: "Please review what you're agreeing to, then tap “I agree” to continue.",
+    pointsTitle: "By continuing, you agree to:",
+    agreeLabel: "I agree to all of the above",
     submit: "Accept and continue",
     submitting: "Recording consent...",
-    progressPill: "{current} of {total} accepted",
-    helpText:
-      "Tap I agree for each statement. You can go back to revise previous answers. The continue button stays disabled until you agree with the current statement.",
     back: "Back",
     next: "Continue to document upload",
-    completedTitle: "Consent recorded successfully",
+    completedTitle: "Consent recorded",
     completedText:
-      "Your KYC session has started. Next, we will collect the required documents step by step.",
+      "Your KYC session has started. Next, upload the required documents step by step.",
     consents: [
       {
-        key: "authorized",
         icon: ShieldCheck,
         tone: "blue",
         title: "Authorization",
-        desc: "I confirm that I am authorized to submit KYC details for this entity. This includes verifying I have the right to act on behalf of the PAN holder."
+        desc: "I am authorized to submit KYC details for this entity."
       },
       {
-        key: "privacy",
         icon: LockKeyhole,
         tone: "purple",
         title: "Information usage",
-        desc: "I agree that my submitted information may be used for KYC verification. All data is encrypted in transit and at rest."
+        desc: "My information may be used for KYC verification, encrypted in transit and at rest."
       },
       {
-        key: "documents",
         icon: FileCheck2,
         tone: "amber",
         title: "Document processing",
-        desc: "I consent to document checks, OCR extraction, manual review, and logical verification. Reviewers will only see what you submit."
+        desc: "I consent to document checks, OCR, manual review, and logical verification."
       },
       {
-        key: "video",
         icon: Clock3,
         tone: "rose",
         title: "Video declaration",
-        desc: "I consent to live photo/video declaration where required for verification. The video stays private and is deleted after review."
+        desc: "I consent to a live photo/video declaration where required. It stays private."
       }
     ]
   },
   hi: {
-    stepLabel: "Consent",
-    stepOf: "Step {current} of {total}",
-    agree: "मैं agree करता/करती हूँ",
-    doNotAgree: "मैं agree नहीं करता/करती",
-    backToStep: "पिछला",
+    title: "Consent",
+    subtitle: "नीचे दी गई बातें पढ़ें और continue करने के लिए “I agree” tap करें।",
+    pointsTitle: "Continue करने पर आप agree करते हैं:",
+    agreeLabel: "मैं ऊपर दी सभी बातों से agree करता/करती हूँ",
     submit: "Accept करके continue करें",
     submitting: "Consent record हो रही है...",
-    progressPill: "{current} of {total} accepted",
-    helpText:
-      "हर statement के लिए I agree tap करें। पिछले answers revise करने के लिए back जा सकते हैं। जब तक current statement agree नहीं करते, continue button disabled रहेगा।",
     back: "Back",
     next: "Document upload पर जाएँ",
-    completedTitle: "Consent successfully record हो गई",
+    completedTitle: "Consent record हो गई",
     completedText:
-      "आपका KYC session start हो गया है। Next step में required documents collect होंगे।",
+      "आपका KYC session start हो गया है। अब required documents एक-एक करके upload करें।",
     consents: [
       {
-        key: "authorized",
         icon: ShieldCheck,
         tone: "blue",
         title: "Authorization",
-        desc: "मैं confirm करता/करती हूँ कि मैं इस entity की KYC details submit करने के लिए authorized हूँ।"
+        desc: "मैं इस entity की KYC details submit करने के लिए authorized हूँ।"
       },
       {
-        key: "privacy",
         icon: LockKeyhole,
         tone: "purple",
         title: "Information usage",
-        desc: "मैं agree करता/करती हूँ कि मेरी submitted information KYC verification के लिए use की जा सकती है।"
+        desc: "मेरी information KYC verification के लिए use हो सकती है, encrypted रहेगी।"
       },
       {
-        key: "documents",
         icon: FileCheck2,
         tone: "amber",
         title: "Document processing",
-        desc: "मैं document checks, OCR extraction, manual review और logical verification के लिए consent देता/देती हूँ।"
+        desc: "मैं document checks, OCR, manual review और verification के लिए consent देता/देती हूँ।"
       },
       {
-        key: "video",
         icon: Clock3,
         tone: "rose",
         title: "Video declaration",
@@ -108,27 +91,11 @@ const content = {
   }
 };
 
-const TONE_STYLES = {
-  blue: {
-    bg: "bg-blue-50",
-    ring: "ring-blue-100",
-    text: "text-blue-700"
-  },
-  purple: {
-    bg: "bg-purple-50",
-    ring: "ring-purple-100",
-    text: "text-purple-700"
-  },
-  amber: {
-    bg: "bg-amber-50",
-    ring: "ring-amber-100",
-    text: "text-amber-700"
-  },
-  rose: {
-    bg: "bg-rose-50",
-    ring: "ring-rose-100",
-    text: "text-rose-700"
-  }
+const TONE = {
+  blue: "bg-blue-50 text-blue-700",
+  purple: "bg-violet-50 text-violet-700",
+  amber: "bg-amber-50 text-amber-700",
+  rose: "bg-rose-50 text-rose-700"
 };
 
 export default function ConsentScreen({
@@ -142,463 +109,132 @@ export default function ConsentScreen({
   isCompleted
 }) {
   const t = content[language] || content.en;
-  const consents = t.consents;
-  const totalSteps = consents.length;
-
-  const [checked, setChecked] = useState({});
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  const acceptedCount = useMemo(
-    () => consents.filter((c) => checked[c.key]).length,
-    [checked, consents]
-  );
-
-  const current = consents[Math.min(currentIndex, totalSteps - 1)];
-  const currentIsAccepted = Boolean(checked[current?.key]);
-  const isLast = currentIndex >= totalSteps - 1;
-  const isFirst = currentIndex === 0;
-
-  function agreeCurrent() {
-    if (!current) return;
-    setChecked((prev) => ({ ...prev, [current.key]: true }));
-    if (!isLast) {
-      setCurrentIndex((i) => i + 1);
-    }
-  }
-
-  function disagreeCurrent() {
-    if (!current) return;
-    setChecked((prev) => ({ ...prev, [current.key]: false }));
-  }
-
-  function goPrev() {
-    if (!isFirst) setCurrentIndex((i) => i - 1);
-  }
-
-  function goNext() {
-    if (!isLast) setCurrentIndex((i) => i + 1);
-  }
-
-  function jumpTo(index) {
-    if (index < 0 || index >= totalSteps) return;
-    if (index <= currentIndex) {
-      setCurrentIndex(index);
-      return;
-    }
-    for (let i = currentIndex; i < index; i++) {
-      if (!checked[consents[i].key]) return;
-    }
-    setCurrentIndex(index);
-  }
+  const [agreed, setAgreed] = useState(false);
 
   async function handleSubmit() {
-    if (isSubmitting) return;
-    // Map the 4 UI consent keys (e.g. "authorized", "privacy") to the
-    // canonical backend field names the API expects. The backend validates
-    // each of these as strictly === true; missing/anything else -> 400.
-    const payload = {
+    if (!agreed || isSubmitting) return;
+    // One "I agree" maps to all four canonical backend consent flags
+    // (the API validates each strictly === true).
+    await onSubmit({
       language,
       consentVersion: "v1",
-      acceptedTerms: Boolean(checked.authorized),
-      acceptedPrivacy: Boolean(checked.privacy),
-      acceptedDocumentProcessing: Boolean(checked.documents),
-      acceptedVideoRecording: Boolean(checked.video)
-    };
-    await onSubmit(payload);
+      acceptedTerms: true,
+      acceptedPrivacy: true,
+      acceptedDocumentProcessing: true,
+      acceptedVideoRecording: true
+    });
   }
 
   if (isCompleted) {
     return (
-      <div className="space-y-5 pb-28 sm:pb-0">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-          <CheckCircle2 size={28} />
-        </div>
-
-        <h1 className="mt-6 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
-          {t.completedTitle}
-        </h1>
-
-        <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
-          {t.completedText}
-        </p>
-
-        <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            All {totalSteps} consents accepted
-          </p>
-          <p className="mt-2 text-sm font-semibold text-navy">
-            {kyc?.currentStage?.replaceAll("_", " ") || "consent completed"}
-          </p>
-        </div>
-
-        {/* Mobile: sticky bottom action bar */}
-        <div
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-md sm:hidden"
-          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
-        >
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
-            >
-              <ArrowLeft size={16} />
-              {t.back}
-            </button>
-            <button
-              type="button"
-              onClick={onNext}
-              className="inline-flex min-h-12 flex-[2] items-center justify-center gap-2 rounded-xl bg-navy px-4 py-3 text-sm font-semibold text-white shadow-sm"
-            >
-              {t.next}
-              <ArrowRight size={17} />
-            </button>
+      <SectionCard title={t.completedTitle}>
+        <div className="flex flex-col items-center gap-5 py-4 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-50 text-green-600">
+            <CheckCircle2 size={30} />
           </div>
-        </div>
-
-        {/* Desktop: inline action bar */}
-        <div className="mt-8 hidden flex-col gap-3 sm:flex-row sm:flex">
+          <p className="max-w-md text-sm leading-7 text-slate-500">
+            {t.completedText}
+          </p>
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              Current stage
+            </p>
+            <p className="mt-1.5 text-sm font-semibold text-navy">
+              {kyc?.currentStage?.replaceAll("_", " ") || "consent completed"}
+            </p>
+          </div>
           <button
             type="button"
             onClick={onNext}
-            className="inline-flex items-center justify-center gap-2 min-h-12 w-full rounded-xl bg-navy px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-navy/90 active:scale-[0.99] sm:w-auto"
+            className="inline-flex min-h-12 w-full max-w-sm items-center justify-center gap-2 rounded-xl bg-navy px-6 py-3 text-sm font-semibold text-white transition hover:bg-navy/90"
           >
             {t.next}
             <ArrowRight size={17} />
           </button>
-
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            <ArrowLeft size={17} />
-            {t.back}
-          </button>
         </div>
-      </div>
+      </SectionCard>
     );
   }
 
-  const CurrentIcon = current?.icon || ShieldCheck;
-  const currentTone = TONE_STYLES[current?.tone] || TONE_STYLES.blue;
-
   return (
-    <div className="flex h-full flex-col pb-32 sm:pb-0">
-      {/* Top: stepper pill + step counter */}
-      <div className="flex items-center gap-2">
-        <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
-          <ShieldCheck size={14} />
-          {t.stepLabel}
-        </div>
-        <div className="text-xs font-semibold text-slate-500">
-          {t.stepOf
-            .replace("{current}", currentIndex + 1)
-            .replace("{total}", totalSteps)}
-        </div>
-      </div>
+    <SectionCard title={t.title} subtitle={t.subtitle}>
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+        {t.pointsTitle}
+      </p>
 
-      {/* Progress bar — clickable to revisit agreed steps */}
-      <div className="mt-4 flex items-center gap-1.5">
-        {consents.map((c, i) => {
-          const done = Boolean(checked[c.key]);
-          const active = i === currentIndex;
-          const canJump = i <= currentIndex || done;
+      <div className="mt-3 space-y-2.5">
+        {t.consents.map((c) => {
+          const Icon = c.icon;
           return (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => jumpTo(i)}
-              disabled={!canJump}
-              aria-label={c.title}
-              className={`relative h-2 flex-1 overflow-hidden rounded-full transition ${
-                done
-                  ? "bg-emerald-500"
-                  : active
-                    ? "bg-slate-200"
-                    : "bg-slate-100"
-              } ${canJump ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
-            />
+            <div
+              key={c.title}
+              className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+            >
+              <div
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                  TONE[c.tone] || TONE.blue
+                }`}
+              >
+                <Icon size={17} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-navy">{c.title}</p>
+                <p className="mt-0.5 text-xs leading-5 text-slate-500">{c.desc}</p>
+              </div>
+            </div>
           );
         })}
       </div>
 
-      {/* Mobile: compact buyer chip */}
-      <div className="mt-5 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:hidden">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 ring-1 ring-slate-200 shadow-sm">
-          <FileCheck2 size={16} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-navy">{kyc?.buyerName}</p>
-          <p className="truncate text-xs text-slate-500">
-            {kyc?.entityLabel} • {kyc?.panMasked}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700">
-          {t.progressPill
-            .replace("{current}", acceptedCount)
-            .replace("{total}", totalSteps)}
+      {/* Single agree */}
+      <button
+        type="button"
+        onClick={() => setAgreed((v) => !v)}
+        className={`mt-5 flex min-h-12 w-full items-center gap-3 rounded-xl border p-4 text-left transition ${
+          agreed
+            ? "border-green-200 bg-green-50"
+            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+        }`}
+      >
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition ${
+            agreed
+              ? "border-success bg-success text-white"
+              : "border-slate-300 bg-white text-transparent"
+          }`}
+        >
+          <CheckCircle2 size={16} />
         </span>
-      </div>
+        <span className="text-sm font-semibold text-navy">{t.agreeLabel}</span>
+      </button>
 
-      {/* Desktop: bigger buyer info card */}
-      <div className="mt-6 hidden rounded-xl border border-slate-200 bg-slate-50/80 p-5 sm:flex">
-        <div className="flex gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 ring-1 ring-slate-200 shadow-sm">
-            <FileCheck2 size={20} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-navy">{kyc?.buyerName}</p>
-            <p className="mt-1 text-sm text-slate-500">
-              {kyc?.entityLabel} • {kyc?.panMasked}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* The big consent card — current statement only */}
-      <div className="mt-5 flex-1">
-        <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-          <div
-            className={`mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl ${currentTone.bg} ${currentTone.text} ring-1 ${currentTone.ring}`}
-          >
-            <CurrentIcon size={22} />
-          </div>
-
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
-            {t.stepLabel} • {currentIndex + 1}/{totalSteps}
-          </p>
-
-          <h2 className="mt-1.5 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
-            {current?.title}
-          </h2>
-
-          <p className="mt-3 text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-            {current?.desc}
-          </p>
-
-          {/* Agreed indicator */}
-          <div
-            className={`mt-5 flex items-center gap-3 rounded-xl border p-3 transition ${
-              currentIsAccepted
-                ? "border-emerald-200 bg-emerald-50/70"
-                : "border-slate-200 bg-slate-50/70"
-            }`}
-          >
-            <span
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all ${
-                currentIsAccepted
-                  ? "bg-emerald-500 text-white"
-                  : "border border-slate-300 bg-white text-slate-300"
-              }`}
-            >
-              {currentIsAccepted ? <CheckCircle2 size={16} /> : <Circle size={16} />}
-            </span>
-            <span
-              className={`text-sm font-semibold ${
-                currentIsAccepted ? "text-emerald-700" : "text-slate-500"
-              }`}
-            >
-              {currentIsAccepted ? "Agreed" : "Not yet agreed"}
-            </span>
-          </div>
-        </div>
-
-        {/* Step list (desktop only) */}
-        <div className="mt-4 hidden rounded-xl border border-slate-200 bg-white p-4 sm:block">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-            All consents
-          </p>
-          <ol className="mt-3 space-y-2">
-            {consents.map((c, i) => {
-              const done = Boolean(checked[c.key]);
-              const active = i === currentIndex;
-              const CIcon = c.icon;
-              return (
-                <li
-                  key={c.key}
-                  className={`flex items-center gap-3 rounded-xl border p-3 ${
-                    active
-                      ? "border-navy bg-navy/5"
-                      : done
-                        ? "border-emerald-200 bg-emerald-50/50"
-                        : "border-slate-200 bg-white"
-                  }`}
-                >
-                  <span
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                      done
-                        ? "bg-emerald-500 text-white"
-                        : active
-                          ? "bg-navy text-white"
-                          : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
-                    {done ? <CheckCircle2 size={14} /> : i + 1}
-                  </span>
-                  <CIcon
-                    size={16}
-                    className={
-                      done
-                        ? "text-emerald-600"
-                        : active
-                          ? "text-navy"
-                          : "text-slate-400"
-                    }
-                  />
-                  <span
-                    className={`text-sm font-semibold ${
-                      active
-                        ? "text-navy"
-                        : done
-                          ? "text-emerald-700"
-                          : "text-slate-600"
-                    }`}
-                  >
-                    {c.title}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700 sm:p-4">
+      {error ? (
+        <div className="mt-4 rounded-xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
           {error}
         </div>
-      )}
+      ) : null}
 
-      {/* Mobile: sticky bottom action bar */}
-      <div
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-md sm:hidden"
-        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
-      >
-        <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          <span>
-            {t.progressPill
-              .replace("{current}", acceptedCount)
-              .replace("{total}", totalSteps)}
-          </span>
-          <span className="text-navy">
-            {acceptedCount === totalSteps
-              ? "All set"
-              : `Agree ${totalSteps - acceptedCount} more`}
-          </span>
-        </div>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row-reverse">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!agreed || isSubmitting}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-navy px-6 py-3 text-sm font-semibold text-white transition hover:bg-navy/90 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
+        >
+          {isSubmitting ? t.submitting : t.submit}
+          {!isSubmitting ? <ArrowRight size={17} /> : null}
+        </button>
 
-        <div className="flex gap-2">
-          {!isFirst ? (
-            <button
-              type="button"
-              onClick={goPrev}
-              className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"
-            >
-              <ArrowLeft size={16} />
-              {t.back}
-            </button>
-          )}
-
-          {isLast && currentIsAccepted ? (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="inline-flex min-h-12 min-w-0 flex-[2] items-center justify-center gap-2 rounded-xl bg-navy px-3 py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.99] disabled:opacity-50"
-            >
-              {isSubmitting ? t.submitting : t.submit}
-              {!isSubmitting && <ArrowRight size={16} />}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={agreeCurrent}
-              className="inline-flex min-h-12 min-w-0 flex-[2] items-center justify-center gap-2 rounded-xl bg-navy px-3 py-3 text-sm font-semibold text-white shadow-sm transition active:scale-[0.99]"
-            >
-              {t.agree}
-              <ChevronRight size={16} />
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={isSubmitting}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+        >
+          <ArrowLeft size={17} />
+          {t.back}
+        </button>
       </div>
-
-      {/* Desktop: inline action bar */}
-      <div className="mt-6 hidden flex-col gap-3 sm:flex">
-        <div className="flex flex-wrap items-center gap-3">
-          {!isFirst ? (
-            <button
-              type="button"
-              onClick={goPrev}
-              className="inline-flex items-center justify-center gap-2 min-h-12 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              <ArrowLeft size={16} />
-              {t.backToStep}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex items-center justify-center gap-2 min-h-12 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              <ArrowLeft size={16} />
-              {t.back}
-            </button>
-          )}
-
-          {currentIsAccepted && !isLast ? (
-            <button
-              type="button"
-              onClick={goNext}
-              className="inline-flex items-center justify-center gap-2 min-h-12 rounded-full bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
-            >
-              Next statement
-              <ChevronRight size={16} />
-            </button>
-          ) : null}
-
-          {currentIsAccepted ? (
-            <button
-              type="button"
-              onClick={disagreeCurrent}
-              className="inline-flex items-center justify-center gap-2 min-h-12 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              {t.doNotAgree}
-            </button>
-          ) : null}
-
-          {isLast && currentIsAccepted ? (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="inline-flex items-center justify-center gap-2 min-h-12 rounded-full bg-navy px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-navy/90 active:scale-[0.99] disabled:opacity-50"
-            >
-              {isSubmitting ? t.submitting : t.submit}
-              {!isSubmitting && <ArrowRight size={16} />}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={agreeCurrent}
-              className="inline-flex items-center justify-center gap-2 min-h-12 rounded-full bg-navy px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-navy/90 active:scale-[0.99]"
-            >
-              {t.agree}
-              <ChevronRight size={16} />
-            </button>
-          )}
-        </div>
-
-        <p className="text-xs leading-5 text-slate-500">{t.helpText}</p>
-      </div>
-    </div>
+    </SectionCard>
   );
 }

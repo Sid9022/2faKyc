@@ -569,10 +569,11 @@ export default function VideoDeclarationScreen({
       setDeclaration(result.declaration);
       setSuccess("Video declaration submitted successfully.");
       setScreen("done");
-      await loadWorkspace();
       stopCamera();
-      // Notify the parent so the layout stepper advances to "done"
-      // (otherwise the progress bar stays at 75% on step 3 of 4).
+
+      // Advance the parent stepper to "done" (100%) IMMEDIATELY on success.
+      // This must run before any further await — a failing re-fetch must never
+      // strand the buyer on the 75% "Video" step after a successful submit.
       if (typeof onSubmitted === "function") {
         onSubmitted();
       }
