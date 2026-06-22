@@ -74,9 +74,7 @@ function SidebarInner({
   return (
     <div className="flex h-full flex-col bg-navy text-white">
       <div className="flex items-center gap-3 px-6 py-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white">
-          <ShieldCheck size={20} />
-        </div>
+        <img src="/logo.png" alt="2Factor" className="h-10 w-10 shrink-0 object-contain drop-shadow-sm" />
         <div>
           <p className="text-sm font-extrabold tracking-tight">2Factor.in</p>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
@@ -222,9 +220,7 @@ export default function BuyerLayout({
             </button>
 
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-navy text-white">
-                <ShieldCheck size={18} />
-              </div>
+              <img src="/logo.png" alt="2Factor" className="h-9 w-9 shrink-0 object-contain drop-shadow-sm" />
               <div className="min-w-0 leading-tight">
                 <p className="truncate text-sm font-extrabold tracking-tight text-navy">
                   2Factor KYC
