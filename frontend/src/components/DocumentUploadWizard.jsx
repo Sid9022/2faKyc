@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -155,6 +156,7 @@ export default function DocumentUploadWizard({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isFinalSubmitting, setIsFinalSubmitting] = useState(false);
+  const [isRequestingPermissions, setIsRequestingPermissions] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -373,6 +375,41 @@ export default function DocumentUploadWizard({
     }
   }
 
+  async function handleContinueToVideo() {
+    try {
+      setIsRequestingPermissions(true);
+      setError("");
+
+      // Request camera and microphone permissions
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+
+      // Stop the stream immediately since we just want the permission
+      stream.getTracks().forEach((track) => track.stop());
+
+      // Request location permission
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setIsRequestingPermissions(false);
+          onNextVideo({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          });
+        },
+        (err) => {
+          setIsRequestingPermissions(false);
+          setError("Location permission is required for the video declaration.");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } catch (err) {
+      setIsRequestingPermissions(false);
+      setError("Camera and microphone permissions are required for the video declaration.");
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="rounded-2xl border border-white/80 bg-white/90 p-8 shadow-xl shadow-gray-200/70">
@@ -444,10 +481,15 @@ export default function DocumentUploadWizard({
           ) : (
             <button
               type="button"
-              onClick={onNextVideo}
-              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black"
+              onClick={handleContinueToVideo}
+              disabled={isRequestingPermissions}
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-gray-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-black disabled:opacity-50"
             >
-              <Video size={16} />
+              {isRequestingPermissions ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Video size={16} />
+              )}
               Continue to video declaration
             </button>
           )}
@@ -968,11 +1010,11 @@ function UploadLoadingOverlay({ documentName, language }) {
     return () => clearInterval(interval);
   }, [messages.length]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/60 backdrop-blur-md p-4 animate-fade-in">
-      <div className="w-full max-w-md rounded-3xl border border-white/20 bg-slate-900/95 p-8 text-center text-white shadow-2xl backdrop-blur-xl">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-navy/60 backdrop-blur-md p-4 animate-fade-in">
+      <div className="w-full max-w-md rounded-3xl border border-white/20 bg-slate-900/95 p-8 text-center text-white shadow-2xl">
         {/* Scanning Animation Visual */}
-        <div className="relative mx-auto mb-6 flex h-24 w-40 items-center justify-center rounded-2xl border border-white/10 bg-white/5 overflow-hidden shadow-inner">
+        <div className="relative mx-auto mb-6 flex h-24 w-40 items-center justify-center rounded-2xl border border-white/10 bg-white/5 overflow-hidden shadow-inner" style={{ transform: "translateZ(0)" }}>
           <FileText size={40} className="text-white/40 animate-pulse" />
           
           {/* Neon scan line */}
@@ -994,10 +1036,11 @@ function UploadLoadingOverlay({ documentName, language }) {
           </p>
         </div>
 
-        <div className="mx-auto mt-6 h-1.5 w-32 overflow-hidden rounded-full bg-white/10">
+        <div className="mx-auto mt-6 h-1.5 w-32 overflow-hidden rounded-full bg-white/10" style={{ transform: "translateZ(0)" }}>
           <div className="h-full bg-accent origin-left animate-loading-bar rounded-full" />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

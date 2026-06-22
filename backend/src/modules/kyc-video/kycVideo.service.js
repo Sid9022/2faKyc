@@ -127,6 +127,10 @@ function validateStartPayload(payload = {}) {
   const declarantRole = String(payload.declarantRole || "").trim();
   const businessName = String(payload.businessName || "").trim();
   const language = normalizeLanguage(payload.language);
+  const parsedLat = parseFloat(payload.latitude);
+  const latitude = Number.isFinite(parsedLat) ? parsedLat : null;
+  const parsedLng = parseFloat(payload.longitude);
+  const longitude = Number.isFinite(parsedLng) ? parsedLng : null;
 
   const errors = {};
 
@@ -145,7 +149,9 @@ function validateStartPayload(payload = {}) {
       declarantFullName,
       declarantRole: declarantRole || null,
       businessName,
-      language
+      language,
+      latitude,
+      longitude
     }
   };
 }
@@ -238,7 +244,9 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
         reviewedAt: null,
         startedAt: new Date(),
         ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null
+        userAgent: requestMeta.userAgent || null,
+        latitude: validation.data.latitude || null,
+        longitude: validation.data.longitude || null
       },
       create: {
         kycId: kyc.id,
@@ -252,7 +260,9 @@ async function startVideoDeclaration(rawToken, payload = {}, requestMeta = {}) {
         runtimeCode,
         status: "session_started",
         ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null
+        userAgent: requestMeta.userAgent || null,
+        latitude: validation.data.latitude || null,
+        longitude: validation.data.longitude || null
       }
     });
 
@@ -397,6 +407,10 @@ async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
   const faceCheckPassed = parseBoolean(body.faceCheckPassed);
   const faceQualityMetadata = parseFaceMetadata(body.faceQualityMetadata);
   const durationSeconds = parseNumber(body.durationSeconds);
+  const parsedLat = parseFloat(body.latitude);
+  const latitude = Number.isFinite(parsedLat) ? parsedLat : null;
+  const parsedLng = parseFloat(body.longitude);
+  const longitude = Number.isFinite(parsedLng) ? parsedLng : null;
 
   if (!faceCheckPassed) {
     return {
@@ -453,6 +467,8 @@ async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
           faceQualityMetadata,
           ipAddress: requestMeta.ipAddress || null,
           userAgent: requestMeta.userAgent || null,
+          latitude: latitude || null,
+          longitude: longitude || null,
           submittedAt: new Date()
         }
       });
@@ -516,7 +532,7 @@ async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
     throw error;
   }
 
-  // Buyer submission complete — run advisory auto-checks for the reviewer.
+  // Buyer submission complete  run advisory auto-checks for the reviewer.
   runAutoChecksForKyc(kyc.id).catch((error) =>
     console.error("[auto-checks] failed:", error.message)
   );
@@ -631,3 +647,5 @@ module.exports = {
   getDevVideoDeclarations,
   getDevVideoAttempts
 };
+
+

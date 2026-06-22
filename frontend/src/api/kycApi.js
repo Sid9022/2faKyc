@@ -329,3 +329,8 @@ export async function getAdminEmailLogs(params = {}) {
   const response = await api.get(`/api/admin/email-logs${query ? `?${query}` : ""}`);
   return response.data;
 }
+
+export async function createManualKyc(payload) {
+  const response = await api.post("/api/reviewer/manual-kyc", payload);
+  return response.data;
+}

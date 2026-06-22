@@ -8,9 +8,16 @@ const TONES = {
   indigo: "bg-indigo-50 text-indigo-600"
 };
 
-export default function StatCard({ icon: Icon, value, label, sub, tone = "navy" }) {
+export default function StatCard({ icon: Icon, value, label, sub, tone = "navy", onClick }) {
+  const Component = onClick ? "button" : "div";
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col justify-between h-full">
+    <Component
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 flex flex-col justify-between h-full w-full text-left ${
+        onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md" : "hover:shadow-md"
+      }`}
+    >
       <div>
         {Icon ? (
           <div
@@ -33,7 +40,7 @@ export default function StatCard({ icon: Icon, value, label, sub, tone = "navy" 
           {sub}
         </p>
       ) : null}
-    </div>
+    </Component>
   );
 }
 

@@ -1,0 +1,1 @@
+fetch('http://localhost:5000/api/public/kyc/798dfbd70e072de3b50c369ecf2dfafdfe39636878f9dd5d1d6376e9ad8d6bb7c092af0150730b220156092f9476e8a8/video/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({declarantFullName: 'Test', businessName: 'Test'})}).then(r => r.text()).then(console.log)

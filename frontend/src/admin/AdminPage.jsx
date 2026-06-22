@@ -12,6 +12,7 @@ import {
   Inbox,
   LayoutDashboard,
   Mail,
+  PlusCircle,
   RotateCcw,
   Search,
   Settings,
@@ -126,11 +127,18 @@ const TAB_META = {
 
 export default function AdminPage() {
   const [tab, setTab] = useState("overview");
+  const [casesFilter, setCasesFilter] = useState("");
   const user = getCurrentUser();
   const firstName = (user?.fullName || "").split(" ")[0] || "there";
 
   const navItems = [
     ...NAV.map((item) => ({ key: item.key, label: item.label, icon: item.icon })),
+    {
+      key: "new-kyc",
+      label: "New KYC",
+      icon: PlusCircle,
+      to: "/new-kyc"
+    },
     {
       key: "reviewer",
       label: "Reviewer console",
@@ -156,8 +164,16 @@ export default function AdminPage() {
       navItems={navItems}
       onNavItem={setTab}
     >
-      {tab === "overview" && <OverviewTab onOpenCases={() => setTab("cases")} />}
-      {tab === "cases" && <CasesTab />}
+      {tab === "overview" && (
+        <OverviewTab
+          onOpenCases={(filter = "") => {
+            setCasesFilter(filter);
+            setTab("cases");
+          }}
+          onOpenEmails={() => setTab("emails")}
+        />
+      )}
+      {tab === "cases" && <CasesTab initialFilter={casesFilter} />}
       {tab === "requirements" && <RequirementsTab />}
       {tab === "users" && <UsersTab />}
       {tab === "settings" && <SettingsTab />}
@@ -217,7 +233,7 @@ function WeeklyChartTooltip({ active, payload, label }) {
   );
 }
 
-function OverviewTab({ onOpenCases }) {
+function OverviewTab({ onOpenCases, onOpenEmails }) {
   const [data, setData] = useState(null);
   const [cases, setCases] = useState([]);
   const [error, setError] = useState("");
@@ -306,6 +322,14 @@ function OverviewTab({ onOpenCases }) {
             label={stat.label}
             sub={stat.sub}
             tone={stat.tone}
+            onClick={() => {
+              if (stat.label === "Total cases") onOpenCases("");
+              else if (stat.label === "Awaiting review") onOpenCases("submitted");
+              else if (stat.label === "Approved") onOpenCases("approved");
+              else if (stat.label === "Needs correction") onOpenCases("resubmission_required");
+              else if (stat.label === "Rejected") onOpenCases("rejected");
+              else if (stat.label === "Emails") onOpenEmails();
+            }}
           />
         ))}
       </div>
@@ -551,9 +575,9 @@ const CASE_FILTERS = [
   { label: "Link sent", value: "link_sent" }
 ];
 
-function CasesTab() {
+function CasesTab({ initialFilter = "" }) {
   const [cases, setCases] = useState([]);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(initialFilter);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");

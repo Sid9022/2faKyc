@@ -89,6 +89,7 @@ export default function VideoDeclarationScreen({
   token,
   language = "en",
   buyerName,
+  locationCoords,
   onBack,
   onSubmitted
 }) {
@@ -287,6 +288,10 @@ export default function VideoDeclarationScreen({
         attachStreamToVideo();
       }, 100);
     }
+
+    if (screen === "camera" && !streamRef.current && !isCameraStarting) {
+      startCamera();
+    }
   }, [screen]);
 
   useEffect(() => {
@@ -313,7 +318,9 @@ export default function VideoDeclarationScreen({
 
       const result = await startKycVideoDeclaration(token, {
         ...form,
-        language
+        language,
+        latitude: locationCoords?.latitude,
+        longitude: locationCoords?.longitude
       });
 
       if (!result.success) {
@@ -559,6 +566,13 @@ export default function VideoDeclarationScreen({
         JSON.stringify(qualitySnapshot)
       );
 
+      if (locationCoords?.latitude) {
+        formData.append("latitude", String(locationCoords.latitude));
+      }
+      if (locationCoords?.longitude) {
+        formData.append("longitude", String(locationCoords.longitude));
+      }
+
       const result = await uploadKycVideoDeclaration(token, formData);
 
       if (!result.success) {
@@ -801,7 +815,7 @@ function VideoCameraStep({
       </div>
 
       <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
-        Camera readiness check
+        {t.cameraTitle}
       </h1>
 
       <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">

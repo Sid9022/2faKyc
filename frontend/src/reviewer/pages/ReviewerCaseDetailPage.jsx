@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   Loader2,
+  PlusCircle,
   RefreshCcw,
   ShieldCheck,
   Video
@@ -33,6 +34,12 @@ function buildNavItems() {
   const isAdmin = getCurrentUser()?.role === "admin";
   return [
     { key: "cases", label: "KYC cases", icon: FileSearch, to: "/reviewer/cases" },
+    {
+      key: "new-kyc",
+      label: "New KYC",
+      icon: PlusCircle,
+      to: "/new-kyc"
+    },
     ...(isAdmin
       ? [
           {
@@ -144,12 +151,37 @@ export default function ReviewerCaseDetailPage() {
 
   const kyc = detail.case;
 
+  // Compute readiness at page level so buttons persist across all tabs
+  const requiredDocs = detail.documents.filter((doc) => doc.isRequired);
+  const acceptedDocs = requiredDocs.filter((doc) => doc.status === "accepted");
+  const failedDocs = detail.documents.filter((doc) =>
+    ["rejected", "resubmission_required"].includes(doc.status)
+  );
+  const videoStatus = detail.videoDeclaration?.status || "not_started";
+
+  const readiness = {
+    acceptedRequiredDocs: acceptedDocs.length,
+    totalRequiredDocs: requiredDocs.length,
+    failedItemsCount:
+      failedDocs.length + (videoStatus === "resubmission_required" ? 1 : 0),
+    videoAccepted: videoStatus === "accepted"
+  };
+
   return (
     <StaffLayout
       title={kyc.buyerName}
       subtitle={`${kyc.entityLabel} • ${kyc.serviceType} • ${kyc.pan || kyc.panMasked}`}
       active="cases"
       navItems={navItems}
+      headerActions={
+        <FinalDecisionPanel
+          kycId={kyc.kycId}
+          caseStatus={kyc.overallStatus}
+          readiness={readiness}
+          onDecision={loadDetail}
+          compact
+        />
+      }
       actions={
         <button
           type="button"
@@ -198,7 +230,7 @@ export default function ReviewerCaseDetailPage() {
       </section>
 
       <div className="mt-6">
-        {activeTab === "overview" && <OverviewTab detail={detail} reload={loadDetail} />}
+        {activeTab === "overview" && <OverviewTab detail={detail} />}
 
         {activeTab === "documents" && (
           <div className="space-y-5">
@@ -227,7 +259,7 @@ export default function ReviewerCaseDetailPage() {
   );
 }
 
-function OverviewTab({ detail, reload }) {
+function OverviewTab({ detail }) {
   const kyc = detail.case;
 
   const requiredDocs = detail.documents.filter((doc) => doc.isRequired);
@@ -239,52 +271,56 @@ function OverviewTab({ detail, reload }) {
   const videoStatus = detail.videoDeclaration?.status || "not_started";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-700">
-            <ShieldCheck size={20} />
+    <div className="space-y-5">
+      {/* Main content — dense layout */}
+      <div className="grid gap-5 xl:grid-cols-[1fr_1fr_1fr] lg:grid-cols-[1fr_1fr]">
+        {/* KYC Summary */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2 lg:col-span-2">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-700">
+              <ShieldCheck size={18} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-navy">KYC summary</h2>
+              <p className="text-xs text-slate-500">
+                Buyer and verification overview
+              </p>
+            </div>
           </div>
 
-          <div>
-            <h2 className="text-base font-semibold text-navy">KYC summary</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Buyer and verification overview
-            </p>
+          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            <Info label="Purchase ID" value={kyc.purchaseId} />
+            <Info label="Buyer Email" value={kyc.buyerEmail} />
+            <Info label="Entity" value={kyc.entityLabel} />
+            <Info label="Service" value={kyc.serviceType} />
+            <Info label="PAN" value={kyc.pan || kyc.panMasked} />
+            <Info label="Mobile" value={kyc.buyerMobile || "—"} />
           </div>
-        </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Info label="Purchase ID" value={kyc.purchaseId} />
-          <Info label="Buyer Email" value={kyc.buyerEmail} />
-          <Info label="Entity" value={kyc.entityLabel} />
-          <Info label="Service" value={kyc.serviceType} />
-          <Info label="PAN" value={kyc.pan || kyc.panMasked} />
-          <Info label="Mobile" value={kyc.buyerMobile || "—"} />
-        </div>
+          {/* Consent — inline within summary */}
+          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                Consent
+              </p>
+              {detail.consent ? (
+                <p className="text-xs leading-5 text-slate-600">
+                  — Accepted {detail.consent.consentVersion} in{" "}
+                  {detail.consent.language?.toUpperCase()} at{" "}
+                  {formatDateTime(detail.consent.acceptedAt)}
+                </p>
+              ) : (
+                <p className="text-xs text-red-600">Not found</p>
+              )}
+            </div>
+          </div>
+        </section>
 
-        <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-            Consent
-          </p>
+        {/* Review Progress — compact right column */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-navy mb-4">Review progress</h2>
 
-          {detail.consent ? (
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              Accepted {detail.consent.consentVersion} in{" "}
-              {detail.consent.language?.toUpperCase()} at{" "}
-              {formatDateTime(detail.consent.acceptedAt)}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-red-600">Consent not found.</p>
-          )}
-        </div>
-      </section>
-
-      <aside className="space-y-5">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-navy">Review progress</h2>
-
-          <div className="mt-5 grid gap-3">
+          <div className="grid gap-2.5">
             <ProgressRow
               label="Required documents accepted"
               value={`${acceptedDocs.length}/${requiredDocs.length}`}
@@ -304,22 +340,10 @@ function OverviewTab({ detail, reload }) {
             />
           </div>
         </section>
+      </div>
 
-        <AutoChecksPanel checks={detail.autoChecks || []} />
-
-        <FinalDecisionPanel
-          kycId={kyc.kycId}
-          caseStatus={kyc.overallStatus}
-          readiness={{
-            acceptedRequiredDocs: acceptedDocs.length,
-            totalRequiredDocs: requiredDocs.length,
-            failedItemsCount:
-              failedDocs.length + (videoStatus === "resubmission_required" ? 1 : 0),
-            videoAccepted: videoStatus === "accepted"
-          }}
-          onDecision={reload}
-        />
-      </aside>
+      {/* Auto Checks — full width for compact display */}
+      <AutoChecksPanel checks={detail.autoChecks || []} />
     </div>
   );
 }
@@ -328,17 +352,21 @@ function AutoChecksPanel({ checks }) {
   if (!checks.length) return null;
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-base font-semibold text-navy">Automated checks</h2>
-      <p className="mt-1 text-xs leading-5 text-slate-500">
-        Advisory only — final decisions are always manual.
-      </p>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold text-navy">Automated checks</h2>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500">
+            Advisory only — final decisions are always manual.
+          </p>
+        </div>
+      </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
         {checks.map((check) => (
-          <div key={check.id} className="rounded-2xl bg-slate-50 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold capitalize text-slate-800">
+          <div key={check.id} className="rounded-xl bg-slate-50 px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold capitalize text-slate-800 truncate">
                 {check.checkKey.replaceAll("_", " ")}
                 {typeof check.score === "number" ? ` (${check.score}%)` : ""}
               </p>
@@ -349,7 +377,7 @@ function AutoChecksPanel({ checks }) {
             </div>
 
             {check.details?.message && (
-              <p className="mt-1.5 text-xs leading-5 text-slate-500">
+              <p className="mt-1 text-xs leading-4 text-slate-500 line-clamp-2">
                 {check.details.message}
               </p>
             )}
@@ -362,18 +390,18 @@ function AutoChecksPanel({ checks }) {
 
 function Info({ label, value }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+    <div className="rounded-xl bg-slate-50 px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
         {label}
       </p>
-      <p className="mt-2 truncate text-sm font-semibold text-navy">{value || "—"}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-navy">{value || "—"}</p>
     </div>
   );
 }
 
 function ProgressRow({ label, value, ok }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4">
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3">
       <p className="text-sm font-semibold text-slate-700">{label}</p>
       <ReviewerBadge status={ok ? "accepted" : "under_review"} label={value} />
     </div>

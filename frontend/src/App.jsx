@@ -5,6 +5,7 @@ import AdminPage from "./admin/AdminPage";
 import RequireRole from "./components/RequireRole";
 import ReviewerCasesPage from "./reviewer/pages/ReviewerCasesPage";
 import ReviewerCaseDetailPage from "./reviewer/pages/ReviewerCaseDetailPage";
+import NewKycPage from "./reviewer/pages/NewKycPage";
 
 function App() {
   return (
@@ -40,6 +41,16 @@ function App() {
           element={
             <RequireRole roles={["admin"]}>
               <AdminPage />
+            </RequireRole>
+          }
+        />
+
+        {/* Manual KYC creation */}
+        <Route
+          path="/new-kyc"
+          element={
+            <RequireRole roles={["reviewer", "admin"]}>
+              <NewKycPage />
             </RequireRole>
           }
         />

@@ -6,6 +6,7 @@ import {
   FileSearch,
   LayoutDashboard,
   Loader2,
+  PlusCircle,
   RefreshCcw,
   Search
 } from "lucide-react";
@@ -81,6 +82,12 @@ export default function ReviewerCasesPage() {
 
   const navItems = [
     { key: "cases", label: "KYC cases", icon: FileSearch, to: "/reviewer/cases" },
+    {
+      key: "new-kyc",
+      label: "New KYC",
+      icon: PlusCircle,
+      to: "/new-kyc"
+    },
     ...(isAdmin
       ? [
           {
@@ -182,7 +189,10 @@ export default function ReviewerCasesPage() {
 
 function CaseRow({ item }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <Link
+      to={`/reviewer/cases/${item.kycId}`}
+      className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -218,15 +228,12 @@ function CaseRow({ item }) {
           </div>
         </div>
 
-        <Link
-          to={`/reviewer/cases/${item.kycId}`}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-navy px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-navy/90"
-        >
+        <div className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-navy px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-navy/90">
           Open review
           <ArrowRight size={16} />
-        </Link>
+        </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

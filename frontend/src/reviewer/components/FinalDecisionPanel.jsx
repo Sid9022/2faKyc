@@ -7,7 +7,8 @@ export default function FinalDecisionPanel({
   kycId,
   caseStatus,
   readiness,
-  onDecision
+  onDecision,
+  compact = false
 }) {
   const [mode, setMode] = useState(null);
   const [remarks, setRemarks] = useState("");
@@ -57,6 +58,134 @@ export default function FinalDecisionPanel({
     }
   }
 
+  if (compact) {
+    return (
+      <div>
+        {/* Inline action buttons for header placement */}
+        <div className="flex flex-wrap items-center gap-2">
+          {isClosed ? (
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
+              KYC <span className="font-bold capitalize">{caseStatus}</span>
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  submitFinalDecision(
+                    "approved",
+                    "All required documents and video declaration verified."
+                  )
+                }
+                disabled={!canApprove || isSubmitting}
+                className="inline-flex items-center gap-2 rounded-xl bg-success px-4 py-2 text-sm font-semibold text-white shadow-sm transition active:scale-[0.98] hover:bg-success/90 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+              >
+                {isSubmitting && !mode ? (
+                  <Loader2 className="animate-spin" size={15} />
+                ) : (
+                  <CheckCircle2 size={15} />
+                )}
+                Approve
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMode((prev) =>
+                    prev === "resubmission_required"
+                      ? null
+                      : "resubmission_required"
+                  );
+                  setMessage("");
+                  setError("");
+                }}
+                disabled={!canAskResubmission || isSubmitting}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+                  mode === "resubmission_required"
+                    ? "bg-resubmit text-white shadow-sm"
+                    : "border border-violet-200 bg-white text-violet-700 hover:bg-violet-50"
+                }`}
+              >
+                <RotateCcw size={15} />
+                Resubmission
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMode((prev) => (prev === "rejected" ? null : "rejected"));
+                  setMessage("");
+                  setError("");
+                }}
+                disabled={isSubmitting}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+                  mode === "rejected"
+                    ? "bg-danger text-white shadow-sm"
+                    : "border border-red-200 bg-white text-red-700 hover:bg-red-50"
+                }`}
+              >
+                <XCircle size={15} />
+                Reject
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Expandable remarks area — slides open below the buttons */}
+        {mode && (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                  {mode === "rejected"
+                    ? "Rejection reason"
+                    : "Resubmission reason"}
+                </label>
+                <textarea
+                  value={remarks}
+                  onChange={(event) => setRemarks(event.target.value)}
+                  rows={2}
+                  placeholder={
+                    mode === "rejected"
+                      ? "Explain why this KYC is rejected..."
+                      : "Explain what the buyer needs to correct..."
+                  }
+                  className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition focus:border-gray-400 focus:bg-white"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => submitFinalDecision(mode, remarks)}
+                disabled={isSubmitting || remarks.trim().length < 3}
+                className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 ${
+                  mode === "rejected"
+                    ? "bg-danger hover:bg-danger/90"
+                    : "bg-resubmit hover:bg-resubmit/90"
+                }`}
+              >
+                {isSubmitting && <Loader2 className="animate-spin" size={15} />}
+                Confirm {mode.replaceAll("_", " ")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Feedback messages */}
+        {message && (
+          <div className="mt-2 rounded-xl border border-green-100 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700">
+            {message}
+          </div>
+        )}
+        {error && (
+          <div className="mt-2 rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700">
+            {error}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Non-compact (original) mode
   return (
     <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
       <div className="flex items-start gap-3">
@@ -228,6 +357,20 @@ export default function FinalDecisionPanel({
   );
 }
 
+function ReadinessPill({ label, value, ok }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+        ok
+          ? "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200"
+          : "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"
+      }`}
+    >
+      <span className="text-slate-500">{label}:</span> {value}
+    </span>
+  );
+}
+
 function ReadinessRow({ label, value, ok }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4">
@@ -243,3 +386,4 @@ function ReadinessRow({ label, value, ok }) {
     </div>
   );
 }
+

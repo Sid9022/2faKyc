@@ -123,6 +123,7 @@ export default function StaffLayout({
   title,
   subtitle,
   actions,
+  headerActions,
   active,
   navItems = [],
   onNavItem,
@@ -215,12 +216,17 @@ export default function StaffLayout({
 
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8 lg:py-8">
           {title ? (
-            <div className="mb-6">
-              <h1 className="text-2xl font-extrabold tracking-tight text-navy">
-                {title}
-              </h1>
-              {subtitle ? (
-                <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-2xl font-extrabold tracking-tight text-navy">
+                  {title}
+                </h1>
+                {subtitle ? (
+                  <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+                ) : null}
+              </div>
+              {headerActions ? (
+                <div className="shrink-0">{headerActions}</div>
               ) : null}
             </div>
           ) : null}

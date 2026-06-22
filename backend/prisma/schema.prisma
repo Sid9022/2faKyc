@@ -479,6 +479,8 @@ model KycVideoDeclaration {
 
   ipAddress           String?
   userAgent           String?
+  latitude            Float?
+  longitude           Float?
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -514,6 +516,8 @@ model KycVideoAttempt {
 
   ipAddress           String?
   userAgent           String?
+  latitude            Float?
+  longitude           Float?
 
   uploadedAt          DateTime                @default(now())
   submittedAt         DateTime?

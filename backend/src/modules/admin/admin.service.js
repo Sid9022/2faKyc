@@ -6,6 +6,7 @@ const { getAllSettings, setSetting } = require("../../utils/settings.util");
 const { listEmailLogs } = require("../email/email.service");
 const { decryptField } = require("../../utils/crypto.util");
 const { buildUserNameMap } = require("../reviewer/reviewer.service");
+const { createKycFromPurchase } = require("../kyc/kyc.service");
 
 /**
  * Turns a zod error into a response that always carries a readable
@@ -606,6 +607,52 @@ async function listAdminKycCases(filters = {}) {
   });
 }
 
+// ---------- Manual KYC Creation ----------
+
+const manualKycSchema = z.object({
+  purchaseId: z.string().min(3),
+  idempotencyKey: z.string().optional(),
+  buyerName: z.string().min(2),
+  buyerEmail: z.string().email(),
+  buyerMobile: z.string().min(8).optional().or(z.literal('')),
+  pan: z.string().min(10),
+  serviceType: z.enum(["SMS", "WHATSAPP", "SMS_WHATSAPP", "RCS"]),
+  amount: z.number().positive().optional()
+});
+
+async function createManualKyc(req) {
+  const parsed = manualKycSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return validationFailure("INVALID_MANUAL_KYC", parsed.error);
+  }
+
+  const data = parsed.data;
+  
+  const dedupePurchaseId = data.idempotencyKey?.trim() || data.purchaseId;
+  
+  const payload = {
+    purchaseId: dedupePurchaseId,
+    buyerName: data.buyerName,
+    buyerEmail: data.buyerEmail,
+    buyerMobile: data.buyerMobile || null,
+    pan: data.pan,
+    serviceType: data.serviceType,
+    amount: data.amount,
+  };
+
+  const requestMeta = {
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent")
+  };
+
+  const result = await createKycFromPurchase(payload, requestMeta, {
+    intakeAction: "manual_kyc_created"
+  });
+
+  return result;
+}
+
 module.exports = {
   listEntityTypes,
   upsertEntityType,
@@ -618,5 +665,6 @@ module.exports = {
   patchSettings,
   getDashboardStats,
   listAdminKycCases,
-  listEmailLogs
+  listEmailLogs,
+  createManualKyc
 };

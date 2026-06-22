@@ -129,6 +129,8 @@ export default function KycStartPage() {
   const [consentError, setConsentError] = useState("");
   const [consentResult, setConsentResult] = useState(null);
 
+  const [locationCoords, setLocationCoords] = useState(null);
+
   const t = copy[language];
 
   async function handleSubmitConsent(payload) {
@@ -145,7 +147,7 @@ export default function KycStartPage() {
 
       setConsentResult(result);
       setData((prev) => ({ ...prev, kyc: result.kyc || prev.kyc }));
-      setStep("consent_done");
+      setStep("documents");
     } catch (err) {
       setConsentError(
         err?.response?.data?.message ||
@@ -246,7 +248,10 @@ export default function KycStartPage() {
         token={token}
         language={language}
         onBack={() => setStep("requirements")}
-        onNextVideo={() => setStep("video")}
+        onNextVideo={(coords) => {
+          if (coords) setLocationCoords(coords);
+          setStep("video");
+        }}
       />
     );
   } else if (step === "video") {
@@ -255,6 +260,7 @@ export default function KycStartPage() {
         token={token}
         language={language}
         buyerName={kyc?.buyerName}
+        locationCoords={locationCoords}
         onBack={() => setStep("documents")}
         onSubmitted={() => setStep("done")}
       />
