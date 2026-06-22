@@ -388,7 +388,10 @@ async function getWeeklyReview() {
       day: DAY_LABELS[d.getDay()],
       submitted: 0,
       approved: 0,
-      rejected: 0
+      rejected: 0,
+      _submittedSet: new Set(),
+      _approvedSet: new Set(),
+      _rejectedSet: new Set()
     });
   }
 
@@ -397,7 +400,7 @@ async function getWeeklyReview() {
       createdAt: { gte: start },
       newStatus: { in: ["submitted", "approved", "rejected"] }
     },
-    select: { newStatus: true, createdAt: true }
+    select: { kycId: true, newStatus: true, createdAt: true }
   });
 
   for (const log of logs) {
@@ -405,9 +408,19 @@ async function getWeeklyReview() {
     day.setHours(0, 0, 0, 0);
     const idx = Math.round((day.getTime() - start.getTime()) / MS_PER_DAY);
     if (idx < 0 || idx > 6) continue;
-    if (log.newStatus === "submitted") buckets[idx].submitted += 1;
-    else if (log.newStatus === "approved") buckets[idx].approved += 1;
-    else if (log.newStatus === "rejected") buckets[idx].rejected += 1;
+    
+    if (log.newStatus === "submitted") buckets[idx]._submittedSet.add(log.kycId);
+    else if (log.newStatus === "approved") buckets[idx]._approvedSet.add(log.kycId);
+    else if (log.newStatus === "rejected") buckets[idx]._rejectedSet.add(log.kycId);
+  }
+
+  for (const b of buckets) {
+    b.submitted = b._submittedSet.size;
+    b.approved = b._approvedSet.size;
+    b.rejected = b._rejectedSet.size;
+    delete b._submittedSet;
+    delete b._approvedSet;
+    delete b._rejectedSet;
   }
 
   return buckets;

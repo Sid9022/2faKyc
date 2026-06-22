@@ -179,7 +179,7 @@ export default function ReviewerCasesPage() {
           )}
 
           {filteredCases.map((item) => (
-            <CaseRow key={item.kycId} item={item} />
+            <CaseRow key={item.kycId} item={item} allCaseIds={filteredCases.map(c => c.kycId)} />
           ))}
         </div>
       )}
@@ -187,10 +187,11 @@ export default function ReviewerCasesPage() {
   );
 }
 
-function CaseRow({ item }) {
+function CaseRow({ item, allCaseIds }) {
   return (
     <Link
       to={`/reviewer/cases/${item.kycId}`}
+      state={{ caseIds: allCaseIds }}
       className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

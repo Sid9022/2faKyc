@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowUpRight,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   FileSearch,
   FileText,
   History,
@@ -56,7 +58,14 @@ function buildNavItems() {
 
 export default function ReviewerCaseDetailPage() {
   const { kycId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const scrollPositionRef = useRef(0);
+
+  const caseIds = location.state?.caseIds || [];
+  const currentIndex = caseIds.indexOf(kycId);
+  const prevId = currentIndex > 0 ? caseIds[currentIndex - 1] : null;
+  const nextId = currentIndex >= 0 && currentIndex < caseIds.length - 1 ? caseIds[currentIndex + 1] : null;
 
   const [detail, setDetail] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
@@ -114,6 +123,19 @@ export default function ReviewerCaseDetailPage() {
     loadDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kycId]);
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (e.key === "ArrowLeft" && prevId) {
+        navigate(`/reviewer/cases/${prevId}`, { state: location.state });
+      } else if (e.key === "ArrowRight" && nextId) {
+        navigate(`/reviewer/cases/${nextId}`, { state: location.state });
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [prevId, nextId, navigate, location.state]);
 
   const navItems = buildNavItems();
 
@@ -183,14 +205,39 @@ export default function ReviewerCaseDetailPage() {
         />
       }
       actions={
-        <button
-          type="button"
-          onClick={loadDetail}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-        >
-          <RefreshCcw size={15} />
-          <span className="hidden sm:inline">Refresh</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {caseIds.length > 0 && (
+            <div className="hidden items-center gap-1 sm:flex mr-2">
+              <button
+                type="button"
+                disabled={!prevId}
+                onClick={() => prevId && navigate(`/reviewer/cases/${prevId}`, { state: location.state })}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white"
+                title="Previous case (Left Arrow)"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                disabled={!nextId}
+                onClick={() => nextId && navigate(`/reviewer/cases/${nextId}`, { state: location.state })}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white"
+                title="Next case (Right Arrow)"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={refreshCaseSilently}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            title="Refresh case"
+          >
+            <RefreshCcw size={15} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+        </div>
       }
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
