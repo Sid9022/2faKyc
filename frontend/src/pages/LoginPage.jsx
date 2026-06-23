@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Lock, ShieldCheck } from "lucide-react";
+import { Lock } from "lucide-react";
 import { getCurrentUser, login } from "../api/kycApi";
 import { postLoginTarget } from "../authRoutes";
 
@@ -56,9 +56,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="rounded-[2rem] border border-gray-200/80 bg-white p-8 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-950 text-white">
-              <ShieldCheck size={22} />
-            </div>
+            <img src="/logo.png" alt="Logo" className="h-12 w-12 object-contain" />
             <div>
               <h1 className="text-lg font-bold text-gray-950">KYC Console</h1>
               <p className="text-sm text-gray-500">

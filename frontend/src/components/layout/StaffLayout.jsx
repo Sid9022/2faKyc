@@ -35,8 +35,8 @@ function NavList({ navItems, active, onNavItem, onNavigate }) {
         const isActive = active === item.key;
         const base = `flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition ${
           isActive
-            ? "bg-white/10 text-white"
-            : "text-white/60 hover:bg-white/5 hover:text-white"
+            ? "bg-blue-600 text-white"
+            : "text-slate-400 hover:bg-white/5 hover:text-white"
         }`;
         const Icon = item.icon;
         const inner = (
@@ -81,7 +81,7 @@ function SidebarInner({ navItems, active, onNavItem, onNavigate, user, onLogout 
         <img src="/logo.png" alt="2Factor" className="h-10 w-10 shrink-0 object-contain drop-shadow-sm" />
         <div>
           <p className="text-sm font-extrabold tracking-tight">2Factor.in</p>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             {user?.role === "admin" ? "Admin Console" : "Reviewer Console"}
           </p>
         </div>
@@ -95,19 +95,19 @@ function SidebarInner({ navItems, active, onNavItem, onNavigate, user, onLogout 
       />
 
       <div className="border-t border-white/10 p-4">
-        <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-xs font-bold">
+        <div className="flex items-center gap-3 rounded-xl bg-transparent p-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
             {initials(user?.fullName)}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold">{user?.fullName}</p>
-            <p className="truncate text-xs capitalize text-white/50">{user?.role}</p>
+            <p className="truncate text-sm font-bold text-white">{user?.fullName}</p>
+            <p className="truncate text-xs capitalize text-slate-400">{user?.role}</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onLogout}
-          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-white/80 transition hover:bg-white/5"
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-semibold text-slate-400 transition hover:bg-white/5 hover:text-white"
         >
           <LogOut size={15} />
           Sign out
