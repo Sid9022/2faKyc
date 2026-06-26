@@ -3,7 +3,8 @@ const {
   getKycCaseDetail,
   reviewDocumentSubmission,
   reviewVideoDeclaration,
-  finalDecisionForKyc
+  finalDecisionForKyc,
+  reopenKycCase
 } = require("./reviewer.service");
 const { getRequestMeta } = require("../../utils/request.util");
 const prisma = require("../../config/prisma");
@@ -115,10 +116,25 @@ async function finalDecision(req, res, next) {
   }
 }
 
+async function reopenCase(req, res, next) {
+  try {
+    const result = await reopenKycCase(
+      req.params.kycId,
+      getRequestMeta(req),
+      getReviewer(req)
+    );
+
+    return res.status(result.statusCode || 200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   listCases,
   getCaseDetail,
   reviewDocument,
   reviewVideo,
-  finalDecision
+  finalDecision,
+  reopenCase
 };

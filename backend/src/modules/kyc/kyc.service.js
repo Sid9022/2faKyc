@@ -96,9 +96,7 @@ function requirementsToChecklist(requirements) {
   }));
 }
 
-function isUniqueViolation(error) {
-  return error?.code === "P2002";
-}
+// isUniqueViolation removed
 
 async function handlePurchaseIdConflict(existingPurchaseEvent, normalizedPurchase, panMasked, entityResult, requestMeta) {
   await prisma.$transaction(async (tx) => {
@@ -189,75 +187,7 @@ async function handlePurchaseRetry(existingPurchaseEvent, normalizedPurchase, pa
   };
 }
 
-async function handleDuplicatePan(existingKyc, normalizedPurchase, panHash, panMasked, payloadHash, requestMeta) {
-  const sanitizedPayload = sanitizePayloadForStorage(normalizedPurchase, panMasked);
-
-  const result = await prisma.$transaction(async (tx) => {
-    const duplicateLog = await tx.kycDuplicateLog.create({
-      data: {
-        purchaseId: normalizedPurchase.purchaseId,
-        panHash,
-        panMasked,
-        originalKycId: existingKyc.id,
-        reason: "Duplicate PAN request ignored",
-        rawPayload: sanitizedPayload
-      }
-    });
-
-    const responseSnapshot = {
-      success: true,
-      duplicate: true,
-      idempotent: false,
-      message:
-        "KYC already exists for this PAN. Duplicate request logged and ignored.",
-      // Bug B11: do NOT echo back the existing KYC's id, entityType,
-      // or overallStatus. A reviewer could iterate random PANs through
-      // this endpoint and map PAN → existingKycId. Keep only the
-      // masked PAN (already public) and the duplicateLog id (admin-only).
-      existingKyc: {
-        panMasked: existingKyc.panMasked
-      },
-      duplicateLog: {
-        id: duplicateLog.id,
-        reason: duplicateLog.reason,
-        panMasked: duplicateLog.panMasked,
-        purchaseId: duplicateLog.purchaseId,
-        receivedAt: duplicateLog.createdAt
-      }
-    };
-
-    await tx.purchaseEvent.create({
-      data: {
-        purchaseId: normalizedPurchase.purchaseId,
-        panHash,
-        panMasked,
-        payloadHash,
-        status: "duplicate_pan_ignored",
-        linkedKycId: existingKyc.id,
-        responseSnapshot,
-        rawPayload: sanitizedPayload
-      }
-    });
-
-    await tx.kycAuditLog.create({
-      data: {
-        kycId: existingKyc.id,
-        actorType: "system",
-        action: "duplicate_pan_ignored",
-        ipAddress: requestMeta.ipAddress || null,
-        userAgent: requestMeta.userAgent || null,
-        metadata: {
-          duplicatePurchaseId: normalizedPurchase.purchaseId,
-          duplicateLogId: duplicateLog.id
-        }
-      }
-    });
-
-    return responseSnapshot;
-  });
-
-  return result;
-}
+// handleDuplicatePan removed
 
 async function createKycFromPurchase(purchasePayload, requestMeta = {}, options = {}) {
   const intakeAction = options.intakeAction || "dummy_purchase_received";
@@ -305,36 +235,62 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
     );
   }
 
-  // Rule 2: same PAN never creates another KYC master.
-  const existingKyc = await prisma.kycMaster.findUnique({
-    where: { panHash }
+  // Renewal / Idempotency Rule: If an approved KYC exists for this PAN and buyerName matches exactly, bypass.
+  const existingApprovedKycs = await prisma.kycMaster.findMany({
+    where: { 
+      panHash,
+      overallStatus: "approved"
+    }
   });
 
-  if (existingKyc) {
-    try {
-      return await handleDuplicatePan(
-        existingKyc,
-        normalizedPurchase,
-        panHash,
-        panMasked,
-        payloadHash,
-        requestMeta
-      );
-    } catch (error) {
-      // Concurrent retry of the same purchaseId — replay idempotently.
-      if (isUniqueViolation(error)) {
-        const event = await prisma.purchaseEvent.findUnique({
-          where: { purchaseId: normalizedPurchase.purchaseId }
+  if (existingApprovedKycs.length > 0) {
+    const match = existingApprovedKycs.find((k) => 
+      k.buyerName.toLowerCase().trim() === normalizedPurchase.buyerName.toLowerCase().trim()
+    );
+
+    if (match) {
+      const sanitizedPayload = sanitizePayloadForStorage(normalizedPurchase, panMasked);
+      const bypassResult = await prisma.$transaction(async (tx) => {
+        const responseSnapshot = {
+          success: true,
+          bypassed: true,
+          message: "KYC bypassed as an approved record already exists for this entity.",
+          existingKyc: { panMasked: match.panMasked }
+        };
+
+        await tx.purchaseEvent.create({
+          data: {
+            purchaseId: normalizedPurchase.purchaseId,
+            panHash,
+            panMasked,
+            payloadHash,
+            status: "kyc_bypassed_renewal",
+            linkedKycId: match.id,
+            responseSnapshot,
+            rawPayload: sanitizedPayload
+          }
         });
-        if (event) {
-          return { ...event.responseSnapshot, idempotent: true };
-        }
-      }
-      throw error;
+
+        await tx.kycAuditLog.create({
+          data: {
+            kycId: match.id,
+            actorType: "system",
+            action: "renewal_purchase_received",
+            ipAddress: requestMeta.ipAddress || null,
+            userAgent: requestMeta.userAgent || null,
+            metadata: { purchaseId: normalizedPurchase.purchaseId }
+          }
+        });
+
+        return responseSnapshot;
+      });
+
+      return bypassResult;
     }
   }
 
-  // Rule 3: new purchaseId + new PAN = create KYC.
+  // Rule 2 was removed: Duplicate PANs are now allowed.
+  // Rule 3: new purchaseId + (any) PAN = create KYC.
   const requirements = await getActiveRequirements(entityResult.entity.key);
   const checklist = requirementsToChecklist(requirements);
   const sanitizedPayload = sanitizePayloadForStorage(normalizedPurchase, panMasked);
@@ -482,25 +438,13 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
       };
     });
   } catch (error) {
-    // Concurrent request created the same purchaseId or PAN first.
-    if (isUniqueViolation(error)) {
+    // Concurrent request created the same purchaseId first.
+    if (error?.code === "P2002") {
       const event = await prisma.purchaseEvent.findUnique({
         where: { purchaseId: normalizedPurchase.purchaseId }
       });
       if (event?.responseSnapshot) {
         return { ...event.responseSnapshot, idempotent: true };
-      }
-
-      const kycNow = await prisma.kycMaster.findUnique({ where: { panHash } });
-      if (kycNow) {
-        return handleDuplicatePan(
-          kycNow,
-          normalizedPurchase,
-          panHash,
-          panMasked,
-          payloadHash,
-          requestMeta
-        );
       }
     }
     throw error;

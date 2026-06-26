@@ -846,11 +846,70 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}, review
   };
 }
 
+async function reopenKycCase(kycId, requestMeta = {}, reviewer = {}) {
+  const existing = await prisma.kycMaster.findUnique({
+    where: { id: kycId }
+  });
+
+  if (!existing) {
+    return {
+      success: false,
+      statusCode: 404,
+      code: "KYC_NOT_FOUND",
+      message: "KYC case not found."
+    };
+  }
+
+  if (existing.overallStatus !== "rejected") {
+    return {
+      success: false,
+      statusCode: 400,
+      code: "INVALID_STATE",
+      message: "Only rejected cases can be reopened."
+    };
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const kyc = await tx.kycMaster.update({
+      where: { id: kycId },
+      data: {
+        overallStatus: "under_review",
+        currentStage: "reopened"
+      }
+    });
+
+    await tx.kycAuditLog.create({
+      data: {
+        kycId: kyc.id,
+        actorType: "reviewer",
+        actorId: reviewer.reviewerId,
+        action: "case_reopened",
+        oldStatus: "rejected",
+        newStatus: "under_review",
+        ipAddress: requestMeta.ipAddress || null,
+        userAgent: requestMeta.userAgent || null,
+        metadata: {
+          reviewerName: reviewer.reviewerName
+        }
+      }
+    });
+
+    return kyc;
+  });
+
+  return {
+    success: true,
+    message: "Case reopened successfully.",
+    kyc: updated
+  };
+}
+
 module.exports = {
   listKycCases,
   getKycCaseDetail,
   reviewDocumentSubmission,
   reviewVideoDeclaration,
   finalDecisionForKyc,
+  reopenKycCase,
   buildUserNameMap
 };

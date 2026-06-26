@@ -50,6 +50,7 @@ enum PurchaseEventStatus {
   purchase_id_conflict
   retry_same_payload
   retry_same_pan_changed_payload
+  kyc_bypassed_renewal
 }
 
 enum RequirementInputMode {
@@ -110,7 +111,7 @@ model KycMaster {
   serviceType   String
   amount        Decimal?         @db.Decimal(12, 2)
 
-  panHash       String           @unique
+  panHash       String
   panMasked     String
   panEnc        String?          // AES-256-GCM (enc:v1:) — reversible; decrypted for admin/reviewer
 

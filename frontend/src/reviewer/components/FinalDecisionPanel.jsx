@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CheckCircle2, Loader2, RotateCcw, ShieldCheck, XCircle } from "lucide-react";
-import { applyKycFinalDecision } from "../../api/kycApi";
+import { applyKycFinalDecision, reopenKycCase } from "../../api/kycApi";
 import ReviewerBadge from "./ReviewerBadge";
 
 export default function FinalDecisionPanel({
@@ -58,15 +58,53 @@ export default function FinalDecisionPanel({
     }
   }
 
+  async function handleReopen() {
+    try {
+      setIsSubmitting(true);
+      setMessage("");
+      setError("");
+
+      const result = await reopenKycCase(kycId);
+      if (!result.success) {
+        setError(result.message || "Unable to reopen case.");
+        return;
+      }
+
+      setMessage(result.message);
+      await onDecision?.();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Unable to reopen case.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   if (compact) {
     return (
       <div>
         {/* Inline action buttons for header placement */}
         <div className="flex flex-wrap items-center gap-2">
           {isClosed ? (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
-              KYC <span className="font-bold capitalize">{caseStatus}</span>
-            </span>
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
+                KYC <span className="font-bold capitalize">{caseStatus}</span>
+              </span>
+              {caseStatus === "rejected" && (
+                <button
+                  type="button"
+                  onClick={handleReopen}
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="animate-spin" size={15} />
+                  ) : (
+                    <RotateCcw size={15} />
+                  )}
+                  Reopen Case
+                </button>
+              )}
+            </>
           ) : (
             <>
               <button
@@ -224,8 +262,19 @@ export default function FinalDecisionPanel({
       </div>
 
       {isClosed && (
-        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-medium text-slate-600">
-          This KYC is already {caseStatus}. Final action is locked.
+        <div className="mt-5 flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-medium text-slate-600">
+          <span>This KYC is already {caseStatus}. Final action is locked.</span>
+          {caseStatus === "rejected" && (
+            <button
+              type="button"
+              onClick={handleReopen}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-2 rounded-xl bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-200 disabled:opacity-50"
+            >
+              {isSubmitting && <Loader2 className="animate-spin" size={15} />}
+              Reopen Case
+            </button>
+          )}
         </div>
       )}
 

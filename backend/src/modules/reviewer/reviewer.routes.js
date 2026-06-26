@@ -5,7 +5,8 @@ const {
   getCaseDetail,
   reviewDocument,
   reviewVideo,
-  finalDecision
+  finalDecision,
+  reopenCase
 } = require("./reviewer.controller");
 const { createManualKyc } = require("../admin/admin.service");
 const { requireAuth, requireRole } = require("../../middleware/auth.middleware");
@@ -22,6 +23,7 @@ router.post("/documents/:submissionId/review", reviewDocument);
 router.post("/video/:declarationId/review", reviewVideo);
 
 router.post("/kyc-cases/:kycId/final-decision", finalDecision);
+router.post("/kyc-cases/:kycId/reopen", reopenCase);
 
 // Bug B11: manual-kyc was open to any reviewer, who could then use
 // duplicate-PAN responses to enumerate which PANs have an existing KYC.

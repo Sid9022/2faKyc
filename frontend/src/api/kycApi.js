@@ -285,6 +285,11 @@ export async function applyKycFinalDecision(kycId, payload) {
   return response.data;
 }
 
+export async function reopenKycCase(kycId) {
+  const response = await api.post(`/api/reviewer/kyc-cases/${kycId}/reopen`);
+  return response.data;
+}
+
 // ---------- admin APIs ----------
 
 export async function getAdminDashboard() {
