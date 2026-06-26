@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle2, LockKeyhole } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Loader2,
+  LockKeyhole
+} from "lucide-react";
 
 import { openKycLink, submitKycConsent } from "../api/kycApi";
 import BuyerLayout from "../components/layout/BuyerLayout";
@@ -35,6 +41,9 @@ const copy = {
     doneTitle: "KYC submitted successfully",
     doneText:
       "Your documents and video declaration are submitted for review. If changes are needed, only the failed item will reopen.",
+    underReviewTitle: "Your KYC is being reviewed",
+    underReviewText:
+      "Your documents and video declaration have been submitted and are now being reviewed. We'll email you as soon as a decision is made.",
     language: "Language"
   },
   hi: {
@@ -56,6 +65,9 @@ const copy = {
     doneTitle: "KYC successfully submit हो गया",
     doneText:
       "आपके documents और video declaration review के लिए submit हो गए हैं। बदलाव की जरूरत होने पर सिर्फ failed item reopen होगा।",
+    underReviewTitle: "आपका KYC review हो रहा है",
+    underReviewText:
+      "आपके documents और video declaration submit हो चुके हैं और अब review किए जा रहे हैं। Decision आते ही हम आपको email करेंगे।",
     language: "भाषा"
   }
 };
@@ -69,50 +81,11 @@ const STEP_ORDER = [
   { key: "done", label: "Submit" }
 ];
 
-// Internal step -> progress milestone (keeps the % clean: 20/40/60/80/100).
-function progressKeyFor(step) {
-  if (step === "details" || step === "requirements") return "details";
-  if (step === "consent" || step === "consent_done") return "consent";
-  if (step === "resubmission" || step === "resubmission_documents") return "documents";
-  if (step === "resubmission_video") return "video";
-  if (step === "documents" || step === "video" || step === "done") return step;
-  return "details";
-}
-
-function deriveStep(kyc) {
-  if (!kyc) return "details";
-  if (
-    kyc.overallStatus === "resubmission_required" ||
-    kyc.currentStage?.startsWith("resubmission")
-  ) {
-    return "resubmission";
-  }
-  // Already submitted → stay on the completion view (and 100%) even on reload.
-  if (
-    kyc.overallStatus === "submitted" ||
-    kyc.overallStatus === "approved" ||
-    kyc.overallStatus === "rejected" ||
-    kyc.currentStage === "buyer_submission_completed"
-  ) {
-    return "done";
-  }
-  if (
-    kyc.currentStage === "documents_completed" ||
-    kyc.currentStage === "video_declaration_started"
-  ) {
-    return "video";
-  }
-  if (
-    kyc.currentStage === "consent_completed" ||
-    kyc.currentStage === "document_upload_in_progress"
-  ) {
-    return "documents";
-  }
-  if (kyc.overallStatus === "in_progress") {
-    return "documents";
-  }
-  return "details";
-}
+// `deriveStep` and `progressKeyFor` live in `./buyerFlow.js` so they can
+// be unit-tested with the built-in `node --test` runner (the component
+// file is JSX). See /frontend/tests/buyerFlow.test.js for the regression
+// cases for bugs A1, A3, A4, A10.
+import { deriveStep, progressKeyFor } from "./buyerFlow";
 
 export default function KycStartPage() {
   const { token } = useParams();
@@ -122,7 +95,16 @@ export default function KycStartPage() {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const hasLoadedRef = useRef(false);
+  // Bug A21: AbortController for in-flight `loadKyc` so a token change
+  // mid-request cancels the stale one instead of letting it overwrite
+  // the new token's data.
+  const abortRef = useRef(null);
+
+  // Bug A16: counter that increments every time the parent flips back
+  // to the `resubmission` step. We pass it as part of the React `key`
+  // to ResubmissionPortal so the component remounts (and its
+  // `useEffect([token])` re-fires) on every round-trip.
+  const [portalKey, setPortalKey] = useState(0);
 
   const [step, setStep] = useState("details");
   const [isSubmittingConsent, setIsSubmittingConsent] = useState(false);
@@ -158,12 +140,16 @@ export default function KycStartPage() {
     }
   }
 
-  async function loadKyc() {
+  async function loadKyc({ silent = false } = {}) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       setError(null);
 
-      const result = await openKycLink(token);
+      const result = await openKycLink(token, { signal: controller.signal });
 
       if (!result.success) {
         setError({ title: "KYC link unavailable", message: result.message });
@@ -173,6 +159,11 @@ export default function KycStartPage() {
       setData(result);
       setStep(deriveStep(result.kyc));
     } catch (err) {
+      // If this request was aborted by a newer one, do nothing — the
+      // newer request will populate state.
+      if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") {
+        return;
+      }
       setError({
         title: "Unable to open KYC link",
         message:
@@ -180,16 +171,57 @@ export default function KycStartPage() {
           "Please check your internet connection and try again."
       });
     } finally {
-      setIsLoading(false);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        if (!silent) setIsLoading(false);
+      }
     }
   }
 
+  // Bug A20 + A21: re-fetch whenever the token changes (within the same
+  // mount). The previous `hasLoadedRef` short-circuited this so a
+  // second token in the same tab would keep showing the first
+  // buyer's PII. Sub-flows also call `refreshKyc` via `onStatusChanged`
+  // so the parent's `data.kyc` is fresh after every state change.
   useEffect(() => {
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
+    // Reset state when the token changes. The setState-in-effect lint
+    // warning matches the pre-existing pattern in this file (the old
+    // `loadKyc` body also ran inside `useEffect` without a flag).
+    setData(null);
+    setError(null);
+    setStep("details");
+    setLocationCoords(null);
+    setConsentResult(null);
     loadKyc();
+    return () => {
+      abortRef.current?.abort();
+    };
+    // loadKyc is intentionally only triggered by `token` — it's a
+    // closure over the current token via the ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Bug A16: bump the portal key on every transition INTO the
+  // resubmission step so the portal remounts and re-fetches its
+  // workspace. Catches the transition from any non-resubmission step
+  // (resubmission_documents / resubmission_video / done / etc) back
+  // into resubmission.
+  const prevStepRef = useRef(null);
+  useEffect(() => {
+    if (step === "resubmission" && prevStepRef.current !== "resubmission") {
+      setPortalKey((k) => k + 1);
+    }
+    prevStepRef.current = step;
+  }, [step]);
+
+  // Public callback for sub-flows (DocumentUploadWizard, VideoDeclarationScreen,
+  // ResubmissionPortal) so they can notify the parent when the master
+  // state changes. Without this, `data.kyc` stays stale after a
+  // successful document/video submit and the parent's `deriveStep`
+  // can pick the wrong branch on re-render.
+  const refreshKyc = useCallback(() => loadKyc({ silent: true }), [
+    token
+  ]);
 
   const requiredDocsCount = useMemo(() => {
     return data?.kyc?.checklist?.filter((item) => item.required).length || 0;
@@ -214,13 +246,24 @@ export default function KycStartPage() {
 
   let body;
   if (step === "resubmission") {
+    // Bug A6: `onBack` deliberately omitted. There is no meaningful
+    // "back" target from the resubmission portal — clicking back used
+    // to take the buyer to the Welcome details screen where they
+    // could re-walk the entire flow and reach the locked document view.
+    // Bug A20: onStatusChanged keeps the parent's `data.kyc` fresh
+    // after every state-changing call inside the portal.
+    // Bug A16: `key` includes `portalKey` (incremented on every
+    // transition into `resubmission`) so React remounts the portal
+    // and its `useEffect([token])` re-fires. Without this, returning
+    // from a sub-flow showed stale `nextAction` because the effect
+    // didn't re-run.
     body = (
       <ResubmissionPortal
+        key={`resubmission-${portalKey}`}
         token={token}
-        language={language}
         onCorrectDocuments={() => setStep("resubmission_documents")}
         onCorrectVideo={() => setStep("resubmission_video")}
-        onBack={() => setStep("details")}
+        onStatusChanged={refreshKyc}
       />
     );
   } else if (step === "resubmission_documents") {
@@ -230,6 +273,7 @@ export default function KycStartPage() {
         language={language}
         onBack={() => setStep("resubmission")}
         onResubmissionDone={() => setStep("resubmission")}
+        onStatusChanged={refreshKyc}
       />
     );
   } else if (step === "resubmission_video") {
@@ -240,6 +284,7 @@ export default function KycStartPage() {
         buyerName={kyc?.buyerName}
         onBack={() => setStep("resubmission")}
         onSubmitted={() => setStep("resubmission")}
+        onStatusChanged={refreshKyc}
       />
     );
   } else if (step === "documents") {
@@ -249,9 +294,10 @@ export default function KycStartPage() {
         language={language}
         onBack={() => setStep("requirements")}
         onNextVideo={(coords) => {
-          if (coords) setLocationCoords(coords);
+          setLocationCoords(coords || null);
           setStep("video");
         }}
+        onStatusChanged={refreshKyc}
       />
     );
   } else if (step === "video") {
@@ -263,8 +309,11 @@ export default function KycStartPage() {
         locationCoords={locationCoords}
         onBack={() => setStep("documents")}
         onSubmitted={() => setStep("done")}
+        onStatusChanged={refreshKyc}
       />
     );
+  } else if (step === "under_review") {
+    body = narrow(<UnderReviewCard t={t} kyc={kyc} />);
   } else if (step === "done") {
     body = narrow(<DoneCard t={t} kyc={kyc} />);
   } else if (step === "consent" || step === "consent_done") {
@@ -403,6 +452,41 @@ function DoneCard({ t, kyc }) {
           </p>
           <p className="mt-1.5 text-sm font-semibold text-navy">
             {kyc?.currentStage?.replaceAll("_", " ") || "buyer submission completed"}
+          </p>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+// Used when the KYC is mid-review (currentStage === "review_in_progress",
+// overallStatus === "under_review"). The buyer's link is still active but
+// there is nothing to do until the reviewer issues a final decision.
+function UnderReviewCard({ t, kyc }) {
+  return (
+    <SectionCard
+      title={t.underReviewTitle || "Your KYC is being reviewed"}
+      actions={
+        <StatusPill
+          status="under_review"
+          label={formatStatusLabel("under_review")}
+        />
+      }
+    >
+      <div className="flex flex-col items-center gap-5 py-4 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+          <Loader2 className="animate-spin" size={28} />
+        </div>
+        <p className="mx-auto max-w-md text-sm leading-7 text-slate-500">
+          {t.underReviewText ||
+            "Your documents and video declaration have been submitted and are now being reviewed. We'll email you as soon as a decision is made."}
+        </p>
+        <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            Current stage
+          </p>
+          <p className="mt-1.5 text-sm font-semibold text-navy">
+            {kyc?.currentStage?.replaceAll("_", " ") || "under review"}
           </p>
         </div>
       </div>

@@ -143,7 +143,8 @@ export default function DocumentUploadWizard({
   language = "en",
   onBack,
   onNextVideo,
-  onResubmissionDone
+  onResubmissionDone,
+  onStatusChanged
 }) {
   const t = content[language] || content.en;
 
@@ -159,6 +160,7 @@ export default function DocumentUploadWizard({
   const [isRequestingPermissions, setIsRequestingPermissions] = useState(false);
 
   const [error, setError] = useState("");
+  const [permissionWarning, setPermissionWarning] = useState("");
   const [success, setSuccess] = useState("");
 
   const steps = workspace?.steps || [];
@@ -167,6 +169,15 @@ export default function DocumentUploadWizard({
 
   const isLocked = progress?.isFinalSubmitted;
   const isResubmissionMode = workspace?.kyc?.isResubmissionMode;
+
+  // Notify the parent that a master-state-changing operation completed
+  // (document saved, skipped, final-submitted). Parent uses this to
+  // refresh its own snapshot of the KYC. Bug A20.
+  const notifyStatusChanged = () => {
+    if (typeof onStatusChanged === "function") {
+      onStatusChanged();
+    }
+  };
 
   const savedRequiredCount = useMemo(() => {
     return steps.filter((step) => step.isRequired && isStepSaved(step)).length;
@@ -189,6 +200,10 @@ export default function DocumentUploadWizard({
 
       if (!result.success) {
         setError(result.message || "Unable to load documents.");
+        // Bug B9: clear stale workspace so the error screen is
+        // shown without leaking the previous case's checklist behind
+        // the banner.
+        setWorkspace(null);
         return;
       }
 
@@ -201,6 +216,8 @@ export default function DocumentUploadWizard({
         err?.response?.data?.message ||
           "Unable to load document progress. Please try again."
       );
+      // Bug B9: same on the catch path.
+      setWorkspace(null);
     } finally {
       setIsLoading(false);
     }
@@ -302,6 +319,7 @@ export default function DocumentUploadWizard({
 
       const nextIndex = Math.min(activeIndex + 1, steps.length - 1);
       setActiveIndex(nextIndex);
+      notifyStatusChanged();
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -313,7 +331,18 @@ export default function DocumentUploadWizard({
   }
 
   async function handleSkipOptional() {
-    if (!activeStep || activeStep.isRequired || isLocked) return;
+    // Bug A9: in resubmission mode every step is effectively required —
+    // the backend rejects skipping with `SKIP_NOT_ALLOWED_IN_RESUBMISSION`.
+    // Hide the button (already done in the JSX) AND defend here in case
+    // a stale render fires the handler.
+    if (
+      !activeStep ||
+      activeStep.isRequired ||
+      isLocked ||
+      isResubmissionMode
+    ) {
+      return;
+    }
 
     try {
       setIsSaving(true);
@@ -340,6 +369,7 @@ export default function DocumentUploadWizard({
 
       const nextIndex = Math.min(activeIndex + 1, steps.length - 1);
       setActiveIndex(nextIndex);
+      notifyStatusChanged();
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -365,6 +395,7 @@ export default function DocumentUploadWizard({
 
       await loadWorkspace();
       setSuccess("Documents final submitted successfully.");
+      notifyStatusChanged();
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -376,38 +407,134 @@ export default function DocumentUploadWizard({
   }
 
   async function handleContinueToVideo() {
-    try {
-      setIsRequestingPermissions(true);
-      setError("");
+    if (typeof onNextVideo !== "function") {
+      setError("Unable to advance to the video step. Please refresh and try again.");
+      return;
+    }
 
-      // Request camera and microphone permissions
+    setIsRequestingPermissions(true);
+    setError("");
+    setPermissionWarning("");
+
+    // Collect issues instead of failing fast — the user must always be able
+    // to advance, because (a) the secure context check can block the browser
+    // APIs entirely on http://LAN-IP, and (b) we have an IP-based location
+    // fallback on the backend.
+    const issues = [];
+    let coords = null;
+
+    // 1. Camera + microphone
+    try {
+      if (
+        !navigator.mediaDevices ||
+        typeof navigator.mediaDevices.getUserMedia !== "function"
+      ) {
+        throw new Error("UNSUPPORTED");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true
       });
-
-      // Stop the stream immediately since we just want the permission
       stream.getTracks().forEach((track) => track.stop());
-
-      // Request location permission
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setIsRequestingPermissions(false);
-          onNextVideo({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude
-          });
-        },
-        (err) => {
-          setIsRequestingPermissions(false);
-          setError("Location permission is required for the video declaration.");
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
     } catch (err) {
-      setIsRequestingPermissions(false);
-      setError("Camera and microphone permissions are required for the video declaration.");
+      console.error("Camera/mic permission error:", err);
+      issues.push(describeMediaError(err));
     }
+
+    // 2. Location (browser geolocation)
+    if (navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === "function") {
+      coords = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+        try {
+          navigator.geolocation.getCurrentPosition(
+            (position) =>
+              finish({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy
+              }),
+            (err) => {
+              console.error("Geolocation error:", err);
+              issues.push(describeGeoError(err));
+              finish(null);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          );
+        } catch (err) {
+          console.error("Geolocation threw synchronously:", err);
+          issues.push("Location services are unavailable in this browser.");
+          finish(null);
+        }
+        setTimeout(() => finish(null), 11000);
+      });
+    } else {
+      issues.push("Location services are unavailable in this browser.");
+    }
+
+    setIsRequestingPermissions(false);
+
+    if (issues.length > 0) {
+      // Pre-secure-context checks: warn loudly but never block.
+      if (typeof window !== "undefined" && !window.isSecureContext) {
+        const origin = window.location.origin;
+        setPermissionWarning(
+          `Your browser blocked ${issues.length === 1 ? "a permission" : "permissions"} because ${origin} is served over HTTP. ` +
+            "Chrome only shows the camera/microphone/location popup on a secure origin (HTTPS or localhost). " +
+            `Easiest fix: open ${origin.replace(/^http:/, "https:")} after running \`npm run dev:https\` in the frontend folder. ` +
+            `Or in Chrome visit chrome://flags/#unsafely-treat-insecure-origin-as-secure, add "${origin}", and restart Chrome. ` +
+            "You can also continue without them — your IP-based location will still be recorded."
+        );
+      } else {
+        setPermissionWarning(
+          `${issues.join(" ")} You can still continue — your IP-based location will be recorded.`
+        );
+      }
+    }
+
+    // Always advance. Pass whatever we got; the backend will fall back to IP.
+    onNextVideo(
+      coords
+        ? {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy
+          }
+        : null
+    );
+  }
+
+  function describeMediaError(err) {
+    if (!err) return "Camera/microphone access failed.";
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      return "Camera and microphone access was blocked.";
+    }
+    if (err.name === "NotFoundError") {
+      return "No camera or microphone was found on this device.";
+    }
+    if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+      return "Your camera or microphone is being used by another app.";
+    }
+    if (err.message === "UNSUPPORTED") {
+      return "Your browser does not support camera access.";
+    }
+    if (err.name === "SecurityError") {
+      return "Camera/microphone access requires HTTPS or localhost.";
+    }
+    return "Camera/microphone access failed.";
+  }
+
+  function describeGeoError(err) {
+    if (!err) return "Location access failed.";
+    if (err.code === 1) return "Location access was denied."; // PERMISSION_DENIED
+    if (err.code === 2) return "Location is currently unavailable."; // POSITION_UNAVAILABLE
+    if (err.code === 3) return "Location request timed out."; // TIMEOUT
+    return "Location access failed.";
   }
 
   if (isLoading) {
@@ -469,6 +596,29 @@ export default function DocumentUploadWizard({
           </p>
         </div>
 
+        {isRequestingPermissions && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+            <Loader2 className="mt-0.5 shrink-0 animate-spin" size={14} />
+            <span>
+              Requesting camera, microphone, and location access… please
+              click <strong>Allow</strong> in your browser's permission prompts.
+            </span>
+          </div>
+        )}
+
+        {permissionWarning && !isRequestingPermissions && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+            <ShieldCheck className="mt-0.5 shrink-0" size={14} />
+            <span>{permissionWarning}</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 rounded-xl border border-red-100 bg-red-50 p-3 text-xs leading-5 text-red-700">
+            {error}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3">
           {isResubmissionMode ? (
             <button
@@ -490,7 +640,9 @@ export default function DocumentUploadWizard({
               ) : (
                 <Video size={16} />
               )}
-              Continue to video declaration
+              {isRequestingPermissions
+                ? "Requesting permissions…"
+                : "Continue to video declaration"}
             </button>
           )}
 
@@ -705,7 +857,7 @@ export default function DocumentUploadWizard({
                     <ArrowLeft size={16} />
                   </button>
 
-                  {!activeStep.isRequired && (
+                  {!activeStep.isRequired && !isResubmissionMode && (
                     <button
                       type="button"
                       onClick={handleSkipOptional}
@@ -779,7 +931,7 @@ export default function DocumentUploadWizard({
                   )}
                 </button>
 
-                {!activeStep.isRequired && (
+                {!activeStep.isRequired && !isResubmissionMode && (
                   <button
                     type="button"
                     onClick={handleSkipOptional}

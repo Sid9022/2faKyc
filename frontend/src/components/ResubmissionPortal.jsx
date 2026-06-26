@@ -15,17 +15,28 @@ import {
 
 import { API_BASE_URL, getKycResubmissionWorkspace } from "../api/kycApi";
 import StatusPill from "./StatusPill";
+import {
+  shouldShowDocumentsToCorrectTile,
+  wentThroughResubmission,
+  approvedCopy
+} from "./resubmissionPortal.js";
 
 export default function ResubmissionPortal({
   token,
-  language = "en",
   onCorrectDocuments,
   onCorrectVideo,
-  onBack
+  onBack,
+  onStatusChanged
 }) {
   const [workspace, setWorkspace] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const notifyStatusChanged = () => {
+    if (typeof onStatusChanged === "function") {
+      onStatusChanged();
+    }
+  };
 
   async function loadWorkspace() {
     try {
@@ -36,15 +47,25 @@ export default function ResubmissionPortal({
 
       if (!result.success) {
         setError(result.message || "Unable to load correction workspace.");
+        // Bug B10: clear stale workspace so the error screen is
+        // shown without the previous case's accepted-items list
+        // bleeding into it.
+        setWorkspace(null);
         return;
       }
 
       setWorkspace(result);
+      // Bug A20: notify the parent that the workspace is loaded. The
+      // parent's snapshot is stale on entry to the portal — refreshing
+      // here gives it a chance to re-derive `step` immediately.
+      notifyStatusChanged();
     } catch (err) {
       setError(
         err?.response?.data?.message ||
           "Unable to load correction workspace. Please try again."
       );
+      // Bug B10: same on the catch path.
+      setWorkspace(null);
     } finally {
       setIsLoading(false);
     }
@@ -54,6 +75,10 @@ export default function ResubmissionPortal({
     loadWorkspace();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Detect whether this KYC went through at least one resubmission cycle,
+  // so the terminal-state copy can call out the resubmission. Bug A22.
+  const wentThroughResubmissionFlag = wentThroughResubmission(workspace);
 
   if (isLoading) {
     return (
@@ -79,14 +104,16 @@ export default function ResubmissionPortal({
 
         <p className="mt-3 text-sm leading-7 text-red-600">{error}</p>
 
-        <button
-          type="button"
-          onClick={onBack}
-          className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
-        >
-          <ArrowLeft size={16} />
-          Back
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
+          >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+        )}
       </section>
     );
   }
@@ -98,13 +125,20 @@ export default function ResubmissionPortal({
   const needsVideo = workspace?.nextAction === "resubmit_video";
 
   if (isApproved) {
+    const copy = approvedCopy(wentThroughResubmissionFlag);
     return (
-      <FinalState
-        type="approved"
-        title="KYC approved"
-        description="Your KYC has been verified and approved."
-        onBack={onBack}
-      />
+      <section className="rounded-2xl space-y-6">
+        <FinalState
+          type="approved"
+          title={copy.title}
+          description={copy.description}
+          onBack={onBack}
+        />
+        <LockedItemsCard
+          acceptedDocuments={workspace?.acceptedDocuments || []}
+          video={workspace?.video}
+        />
+      </section>
     );
   }
 
@@ -121,12 +155,23 @@ export default function ResubmissionPortal({
 
   if (isWaitingForReview) {
     return (
-      <FinalState
-        type="waiting"
-        title="Corrections submitted"
-        description="Your corrected items are submitted for reviewer verification. We will notify you if more action is required."
-        onBack={onBack}
-      />
+      <section className="rounded-2xl space-y-6">
+        <FinalState
+          type="waiting"
+          title="Corrections submitted"
+          description="Your corrected items are submitted for reviewer verification. We will notify you if more action is required."
+          onBack={onBack}
+        />
+        {/*
+          Bug A8: the buyer couldn't see what was accepted after
+          submitting corrections. We now render LockedItemsCard below
+          the FinalState so they have a record of what was locked.
+        */}
+        <LockedItemsCard
+          acceptedDocuments={workspace?.acceptedDocuments || []}
+          video={workspace?.video}
+        />
+      </section>
     );
   }
 
@@ -159,11 +204,19 @@ export default function ResubmissionPortal({
               tone="success"
             />
 
-            <SummaryTile
-              label="Documents to correct"
-              value={workspace?.summary?.documentsNeedingResubmissionCount || 0}
-              tone={needsDocuments ? "warning" : "neutral"}
-            />
+            {/*
+              Bug A7: previously the "Documents to correct" tile rendered
+              with a value of 0 when there were no pending corrections,
+              which read as a warning tone for an empty state. Hide the
+              tile when nothing is pending.
+            */}
+            {shouldShowDocumentsToCorrectTile(workspace?.summary) && (
+              <SummaryTile
+                label="Documents to correct"
+                value={workspace.summary.documentsNeedingResubmissionCount}
+                tone={needsDocuments ? "warning" : "neutral"}
+              />
+            )}
 
             <SummaryTile
               label="Video correction"
@@ -226,21 +279,31 @@ export default function ResubmissionPortal({
                   </p>
                 </div>
               </div>
-            </div>
-          )}
-        </section>
-      </div>
+             </div>
+           )}
+         </section>
+       </div>
 
-      <button
-        type="button"
-        onClick={onBack}
-        className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition active:scale-[0.98] hover:bg-slate-50"
-      >
-        <ArrowLeft size={16} />
-        Back
-      </button>
-    </section>
-  );
+      {/*
+        Bug A6: the "Back" button used to navigate the buyer to the
+        Welcome details screen (via the parent's `setStep("details")`),
+        where they could re-walk the entire flow and reach the locked
+        document view. There's no meaningful "back" from a resubmission
+        portal — it's a terminal page in the cycle — so the button is
+        rendered only when an `onBack` handler is explicitly provided.
+      */}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition active:scale-[0.98] hover:bg-slate-50"
+        >
+          <ArrowLeft size={16} />
+          Back
+        </button>
+      )}
+     </section>
+   );
 }
 
 function LockedItemsCard({ acceptedDocuments, video }) {

@@ -210,18 +210,18 @@ async function handleDuplicatePan(existingKyc, normalizedPurchase, panHash, panM
       idempotent: false,
       message:
         "KYC already exists for this PAN. Duplicate request logged and ignored.",
+      // Bug B11: do NOT echo back the existing KYC's id, entityType,
+      // or overallStatus. A reviewer could iterate random PANs through
+      // this endpoint and map PAN → existingKycId. Keep only the
+      // masked PAN (already public) and the duplicateLog id (admin-only).
       existingKyc: {
-        kycId: existingKyc.id,
-        panMasked: existingKyc.panMasked,
-        entityType: existingKyc.entityType,
-        overallStatus: existingKyc.overallStatus
+        panMasked: existingKyc.panMasked
       },
       duplicateLog: {
         id: duplicateLog.id,
         reason: duplicateLog.reason,
         panMasked: duplicateLog.panMasked,
         purchaseId: duplicateLog.purchaseId,
-        originalKycId: duplicateLog.originalKycId,
         receivedAt: duplicateLog.createdAt
       }
     };
@@ -425,12 +425,19 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
       await tx.kycAuditLog.create({
         data: {
           kycId: kyc.id,
-          actorType: "system",
+          // Bug B11: when an admin creates a KYC manually, the audit
+          // row must record who did it. For the regular webhook path
+          // this stays "system".
+          actorType: options.actorId ? "admin" : "system",
+          actorId: options.actorId || null,
           action: intakeAction,
           newStatus: "link_sent",
           ipAddress: requestMeta.ipAddress || null,
           userAgent: requestMeta.userAgent || null,
-          metadata: { purchaseId: normalizedPurchase.purchaseId }
+          metadata: {
+            purchaseId: normalizedPurchase.purchaseId,
+            ...(options.actorEmail ? { actorEmail: options.actorEmail } : {})
+          }
         }
       });
 
@@ -453,11 +460,16 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
         requestMeta
       });
 
+      // Bug B5: never return the raw one-time buyer KYC URL to the
+      // caller. The URL is delivered to the buyer by email. Anyone
+      // capturing this response (proxy logs, browser dev tools, a
+      // compromised reviewer account) could open the buyer's KYC
+      // without ever receiving the email. Keep only the opaque
+      // linkId + expiry for debugging.
       return {
         ...responseSnapshot,
         kycLink: {
           linkId: secureLink.linkId,
-          buyerKycUrl: secureLink.buyerKycUrl,
           expiresAt: secureLink.expiresAt
         },
         _internal: {
@@ -495,6 +507,13 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
   }
 
   // Email after commit — a mail failure must never roll back the KYC.
+  // Bug B13: the initial email is the only `kycLinkEmail` send. If the
+  // buyer loses it (or the link expires before they click), the
+  // reminder scheduler is the recovery path — it issues a fresh
+  // link via `createSecureKycLinkForKyc({preserveStatus: true})` every
+  // reminder cycle until `maxReminders`. There is no buyer self-service
+  // "resend link" endpoint by design (it would need an email-matching
+  // gate + rate limit + audit log to be safe).
   const internal = result._internal;
   delete result._internal;
 

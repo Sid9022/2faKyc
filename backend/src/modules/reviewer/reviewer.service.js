@@ -1,5 +1,5 @@
 const prisma = require("../../config/prisma");
-const { decryptField } = require("../../utils/crypto.util");
+const { decryptField, maskEmail } = require("../../utils/crypto.util");
 const { validatePAN, hashPAN } = require("../kyc/pan.utils");
 const { getAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
 const { createSecureKycLinkForKyc } = require("../kyc-link/kycLink.service");
@@ -99,8 +99,13 @@ async function listKycCases(filters = {}) {
       kycId: item.id,
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
-      buyerEmail: decryptField(item.buyerEmail),
-      pan: decryptField(item.panEnc) || item.panMasked,
+      // Bug B1 + B2: never decrypt PII in the list response. The list
+      // view can render up to 300 cases per page — exposing full PAN +
+      // email makes the entire buyer DB one screenshot / shoulder-surf
+      // away. Detail-page endpoints still return full PII for the
+      // reviewer's working case.
+      buyerEmail: maskEmail(item.buyerEmail),
+      pan: item.panMasked,
       panMasked: item.panMasked,
       entityType: item.entityType,
       entityLabel: item.entityLabel,
@@ -560,7 +565,7 @@ async function reviewVideoDeclaration(declarationId, payload = {}, requestMeta =
   };
 }
 
-async function sendFinalDecisionEmail(kyc, decision, remarks, failedItems) {
+async function sendFinalDecisionEmail(kyc, decision, remarks, failedItems, acceptedItems = []) {
   const buyerEmail = decryptField(kyc.buyerEmail);
 
   if (!buyerEmail || buyerEmail === "[decryption-failed]") return;
@@ -585,6 +590,7 @@ async function sendFinalDecisionEmail(kyc, decision, remarks, failedItems) {
       buyerName: kyc.buyerName,
       kycUrl: secureLink.buyerKycUrl,
       failedItems,
+      acceptedItems,
       remarks
     });
     emailType = "resubmission_requested";
@@ -810,7 +816,21 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}, review
     ...(videoFailed ? ["Live Video Declaration"] : [])
   ];
 
-  sendFinalDecisionEmail(detail, decision, remarks, failedItems).catch((error) =>
+  // Bug A2: the buyer email should also call out items that were already
+  // accepted, so they don't panic-re-accept something they were told is
+  // locked. We only include these when the reviewer issued a
+  // resubmission decision (not approved / rejected).
+  const acceptedItems =
+    decision === "resubmission_required"
+      ? [
+          ...detail.documentSubmissions
+            .filter((doc) => doc.status === "accepted")
+            .map((doc) => doc.documentName),
+          ...(videoAccepted ? ["Live Video Declaration"] : [])
+        ]
+      : [];
+
+  sendFinalDecisionEmail(detail, decision, remarks, failedItems, acceptedItems).catch((error) =>
     console.error("[email] final decision notification failed:", error.message)
   );
 

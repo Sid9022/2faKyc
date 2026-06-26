@@ -1,7 +1,21 @@
 import axios from "axios";
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+// API base URL resolution:
+//   1. If VITE_API_BASE_URL is defined (even as an empty string), use it
+//      exactly. An explicit empty value means "use relative URLs" — i.e.
+//      rely on the Vite dev proxy or a production reverse proxy.
+//   2. Otherwise, in dev, fall back to http://localhost:5000 so the form
+//      works without a proxy on the same machine.
+//   3. Otherwise, in production, fall back to a relative URL (assumes a
+//      reverse proxy forwards /api to the backend).
+function resolveApiBaseUrl() {
+  const fromEnv = import.meta.env.VITE_API_BASE_URL;
+  if (typeof fromEnv === "string") return fromEnv;
+  if (import.meta.env.DEV) return "http://localhost:5000";
+  return "";
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 const AUTH_STORAGE_KEY = "kyc_auth_v1";
 

@@ -4,7 +4,7 @@ const { z } = require("zod");
 const prisma = require("../../config/prisma");
 const { getAllSettings, setSetting } = require("../../utils/settings.util");
 const { listEmailLogs } = require("../email/email.service");
-const { decryptField } = require("../../utils/crypto.util");
+const { maskEmail } = require("../../utils/crypto.util");
 const { buildUserNameMap } = require("../reviewer/reviewer.service");
 const { createKycFromPurchase } = require("../kyc/kyc.service");
 
@@ -586,8 +586,11 @@ async function listAdminKycCases(filters = {}) {
       kycId: item.id,
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
-      buyerEmail: decryptField(item.buyerEmail),
-      pan: decryptField(item.panEnc) || item.panMasked,
+      // Bug B4: never decrypt PII in the admin list response either.
+      // Admin list can render up to 500 cases per page. Detail-page
+      // endpoints still return full PII for the active case.
+      buyerEmail: maskEmail(item.buyerEmail),
+      pan: item.panMasked,
       panMasked: item.panMasked,
       entityLabel: item.entityLabel,
       serviceType: item.serviceType,
@@ -659,8 +662,14 @@ async function createManualKyc(req) {
     userAgent: req.get("user-agent")
   };
 
+  // Bug B11: tag manual KYC creations with the acting admin's id so
+  // the audit log can answer "who created this manual KYC?"
+  const actor = req.user || req.actor || null;
+
   const result = await createKycFromPurchase(payload, requestMeta, {
-    intakeAction: "manual_kyc_created"
+    intakeAction: "manual_kyc_created",
+    actorId: actor?.id || null,
+    actorEmail: actor?.email || null
   });
 
   return result;

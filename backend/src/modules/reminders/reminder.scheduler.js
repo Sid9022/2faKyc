@@ -110,7 +110,15 @@ async function processDueReminders() {
       buyerName: kyc.buyerName,
       kycUrl: secureLink.buyerKycUrl,
       reminderNumber,
-      maxReminders: state.maxReminders
+      maxReminders: state.maxReminders,
+      // Bug B14: branch the reminder copy on master state so a
+      // buyer in a correction cycle gets a relevant message instead
+      // of "complete your KYC" (which is misleading because they
+      // already submitted).
+      mode:
+        kyc.overallStatus === "resubmission_required"
+          ? "resubmission_required"
+          : "fresh"
     });
 
     await sendKycEmail({

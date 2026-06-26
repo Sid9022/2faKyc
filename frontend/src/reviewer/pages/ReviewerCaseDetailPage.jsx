@@ -72,8 +72,16 @@ export default function ReviewerCaseDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Bug B7: a request sequence counter so stale responses (Case A's
+  // slow response arriving after the user navigated to Case B) cannot
+  // overwrite the current view. Each load bumps the counter; the
+  // response only commits if it's still the most recent request.
+  const requestSeqRef = useRef(0);
+
   async function loadDetail(options = {}) {
     const { silent = false, preserveScroll = false } = options;
+
+    const myRequest = ++requestSeqRef.current;
 
     try {
       if (preserveScroll) {
@@ -88,8 +96,17 @@ export default function ReviewerCaseDetailPage() {
 
       const result = await getReviewerCaseDetail(kycId);
 
+      // Bug B7: discard if a newer request has been started.
+      if (myRequest !== requestSeqRef.current) {
+        return;
+      }
+
       if (!result.success) {
         setError(result.message || "Unable to load KYC case.");
+        // Bug B8: also clear stale detail so the "previous-case
+        // bleeds-in" bug doesn't surface the wrong PII behind the
+        // error banner.
+        setDetail(null);
         return;
       }
 
@@ -104,9 +121,14 @@ export default function ReviewerCaseDetailPage() {
         });
       }
     } catch (err) {
+      // Bug B8: discard stale responses on error too.
+      if (myRequest !== requestSeqRef.current) {
+        return;
+      }
       setError(err?.response?.data?.message || "Unable to load KYC case detail.");
+      setDetail(null);
     } finally {
-      if (!silent) {
+      if (myRequest === requestSeqRef.current && !silent) {
         setIsLoading(false);
       }
     }

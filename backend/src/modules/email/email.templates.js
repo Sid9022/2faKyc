@@ -195,26 +195,71 @@ function kycLinkEmail({ buyerName, kycUrl, expiresAt }) {
   };
 }
 
-function kycReminderEmail({ buyerName, kycUrl, reminderNumber, maxReminders }) {
+function kycReminderEmail({
+  buyerName,
+  kycUrl,
+  reminderNumber,
+  maxReminders,
+  mode = "fresh"
+}) {
+  // Bug B14: when the reminder fires for a KYC that's mid-resubmission,
+  // the generic "complete your KYC" copy is misleading — the buyer
+  // has already submitted; they just need to fix a few items. Branch
+  // the template on `mode` so the copy matches reality.
+  const isResubmission = mode === "resubmission_required";
+
+  const subject = isResubmission
+    ? `Reminder ${reminderNumber}/${maxReminders}: Some KYC items need correction`
+    : `Reminder ${reminderNumber}/${maxReminders}: Your 2Factor KYC is pending`;
+
+  const preheader = isResubmission
+    ? "Your KYC has items that need correction. Click to fix them."
+    : "Your KYC verification is still pending.";
+
+  const heading = isResubmission
+    ? "A small correction is needed"
+    : "Your KYC is still pending";
+
+  const body = isResubmission
+    ? "Our review team has flagged some items in your KYC submission that need correction. You can re-submit just those items — anything already accepted stays locked. Click below to fix and re-submit."
+    : "Your KYC verification has not been completed yet. Your service cannot be activated until it is done — it only takes a few minutes.";
+
+  const cta = isResubmission ? "Fix and resubmit" : "Complete KYC now";
+
   return {
-    subject: `Reminder ${reminderNumber}/${maxReminders}: Your 2Factor KYC is pending`,
+    subject,
     body: layout({
-      preheader: "Your KYC verification is still pending.",
-      heading: "Your KYC is still pending",
+      preheader,
+      heading,
       contentHtml: `
         ${badge(`Reminder ${reminderNumber} of ${maxReminders}`, BRAND.warning)}
-        ${headingHtml("Your KYC is still pending")}
+        ${headingHtml(heading)}
         ${paragraph(`Dear <strong>${escapeHtml(buyerName)}</strong>,`)}
-        ${paragraph(
-          "Your KYC verification has not been completed yet. Your service cannot be activated until it is done — it only takes a few minutes."
-        )}
-        ${button("Complete KYC now", kycUrl, BRAND.warning)}
+        ${paragraph(body)}
+        ${button(cta, kycUrl, BRAND.warning)}
       `
     })
   };
 }
 
-function resubmissionEmail({ buyerName, kycUrl, failedItems, remarks }) {
+function resubmissionEmail({ buyerName, kycUrl, failedItems, acceptedItems = [], remarks }) {
+  const failed = Array.isArray(failedItems) ? failedItems : [];
+  const accepted = Array.isArray(acceptedItems) ? acceptedItems : [];
+
+  // Bug A2: when the reviewer only flagged a subset of items (e.g.
+  // documents only, video already accepted), the email used to list
+  // only the failed items and leave the buyer to wonder whether the
+  // accepted ones were silently rejected. Render the accepted set
+  // explicitly so the buyer knows which items are locked.
+  const acceptedBlock = accepted.length
+    ? `
+        ${paragraph(
+          "<strong>Already accepted (no action needed from you):</strong>"
+        )}
+        ${listBox(accepted, BRAND.success)}
+      `
+    : "";
+
   return {
     subject: "Action needed: some KYC items require correction",
     body: layout({
@@ -225,9 +270,10 @@ function resubmissionEmail({ buyerName, kycUrl, failedItems, remarks }) {
         ${headingHtml("Some items need a quick fix")}
         ${paragraph(`Dear <strong>${escapeHtml(buyerName)}</strong>,`)}
         ${paragraph(
-          "Our review team checked your KYC submission. Everything that was accepted stays accepted — only the item(s) below need to be resubmitted:"
+          "Our review team checked your KYC submission. Items that were already accepted stay locked — only the item(s) below need to be resubmitted:"
         )}
-        ${listBox(failedItems || [], BRAND.warning)}
+        ${listBox(failed, BRAND.warning)}
+        ${acceptedBlock}
         ${remarks ? noteBox("Reviewer note", remarks, BRAND.warning) : ""}
         ${button("Fix and resubmit", kycUrl, BRAND.warning)}
       `

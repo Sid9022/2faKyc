@@ -7,9 +7,12 @@ import {
   CircleStop,
   FileVideo,
   Loader2,
+  MapPin,
+  Mic,
   RefreshCcw,
   RotateCcw,
   Send,
+  ShieldAlert,
   ShieldCheck,
   UserRound,
   Video
@@ -73,6 +76,77 @@ const content = {
   }
 };
 
+const PERMISSION_GATE_TEXT = {
+  en: {
+    title: "Allow access to continue",
+    subtitle:
+      "Camera, microphone, and location are required for the video declaration. We only use them to record your declaration — nothing is shared.",
+    introNote:
+      "Your browser will ask for permission the first time you tap each “Allow” button. Please choose “Allow” on every popup to move forward.",
+    statusGranted: "Allowed",
+    statusPrompt: "Tap Allow",
+    statusDenied: "Blocked",
+    statusUnsupported: "Not supported",
+    statusChecking: "Checking…",
+    cameraLabel: "Camera",
+    cameraDesc: "To record your video declaration.",
+    micLabel: "Microphone",
+    micDesc: "To capture your voice while you speak.",
+    locationLabel: "Location",
+    locationDesc: "To record where the declaration was made.",
+    allow: "Allow",
+    continue: "Continue to video declaration",
+    blockedHint:
+      "This permission is blocked in your browser. Open the address-bar lock icon (or browser settings) for this site and turn it back on, then come back and tap “Allow” again.",
+    settingsCta: "How to enable in browser",
+    secureContextHint:
+      "Camera, microphone, and location only work on a secure origin (HTTPS or localhost). Open this page over HTTPS to continue."
+  },
+  hi: {
+    title: "आगे बढ़ने के लिए access allow करें",
+    subtitle:
+      "Video declaration के लिए camera, microphone और location जरूरी हैं। हम इन्हें सिर्फ आपकी declaration record करने के लिए use करते हैं — कुछ share नहीं होता।",
+    introNote:
+      "पहली बार “Allow” tap करने पर browser permission माँगेगा। आगे बढ़ने के लिए हर popup में “Allow” चुनें।",
+    statusGranted: "Allow हो गया",
+    statusPrompt: "Allow tap करें",
+    statusDenied: "Blocked है",
+    statusUnsupported: "Supported नहीं है",
+    statusChecking: "Check हो रहा है…",
+    cameraLabel: "Camera",
+    cameraDesc: "आपकी video declaration record करने के लिए।",
+    micLabel: "Microphone",
+    micDesc: "आपकी आवाज़ capture करने के लिए।",
+    locationLabel: "Location",
+    locationDesc: "Declaration कहाँ की गई, record करने के लिए।",
+    allow: "Allow करें",
+    continue: "Video declaration पर जाएँ",
+    blockedHint:
+      "यह permission browser में blocked है। Address bar के lock icon (या browser settings) से इसे on करें, फिर वापस आकर “Allow” tap करें।",
+    settingsCta: "Browser में कैसे enable करें",
+    secureContextHint:
+      "Camera, microphone और location सिर्फ secure origin (HTTPS या localhost) पर काम करते हैं। आगे बढ़ने के लिए इस page को HTTPS से खोलें।"
+  }
+};
+
+// Status values for each permission. `'unknown'` is the pre-query state.
+const PERM_STATUS = {
+  UNKNOWN: "unknown",
+  CHECKING: "checking",
+  GRANTED: "granted",
+  PROMPT: "prompt",
+  DENIED: "denied",
+  UNSUPPORTED: "unsupported"
+};
+
+function initialPermissionState() {
+  return {
+    camera: PERM_STATUS.UNKNOWN,
+    microphone: PERM_STATUS.UNKNOWN,
+    location: PERM_STATUS.UNKNOWN
+  };
+}
+
 const initialFaceState = {
   ready: false,
   message: "Start camera to run face readiness check.",
@@ -91,7 +165,8 @@ export default function VideoDeclarationScreen({
   buyerName,
   locationCoords,
   onBack,
-  onSubmitted
+  onSubmitted,
+  onStatusChanged
 }) {
   const t = content[language] || content.en;
 
@@ -110,7 +185,7 @@ export default function VideoDeclarationScreen({
   const statsRef = useRef({
     checks: 0,
     faceVisibleCount: 0,
-    singleFaceCount: 0,
+    singleFaceRatio: 0,
     centeredCount: 0,
     goodSizeCount: 0,
     lightingOkCount: 0,
@@ -119,16 +194,77 @@ export default function VideoDeclarationScreen({
     multipleFaceCount: 0
   });
 
-  const [workspace, setWorkspace] = useState(null);
-  const [declaration, setDeclaration] = useState(null);
-  const [screen, setScreen] = useState("details");
+  // Bug A13: persist screen, declaration, and form to sessionStorage so
+  // a page reload mid-flow doesn't wipe the buyer's progress (including
+  // the runtimeCode, which is regenerated on every fresh session).
+  // Scoped by token so two buyers in two tabs don't collide.
+  const storageKey = `kyc-video-state:${token || "anon"}`;
 
-  const [form, setForm] = useState({
-    declarantFullName: "",
-    declarantRole: "",
-    businessName: buyerName || "",
-    language
+  function loadPersisted(key) {
+    try {
+      const raw = window.sessionStorage.getItem(`${storageKey}:${key}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function savePersisted(key, value) {
+    try {
+      if (value == null) {
+        window.sessionStorage.removeItem(`${storageKey}:${key}`);
+      } else {
+        window.sessionStorage.setItem(
+          `${storageKey}:${key}`,
+          JSON.stringify(value)
+        );
+      }
+    } catch {
+      // sessionStorage unavailable (private mode, quota, etc.) — ignore.
+    }
+  }
+
+  const [workspace, setWorkspace] = useState(null);
+  const [declaration, setDeclarationRaw] = useState(loadPersisted("declaration"));
+  const [screen, setScreenRaw] = useState(loadPersisted("screen") || "permissions");
+
+  // Bug A13: persist screen and declaration to sessionStorage so a
+  // page reload mid-flow doesn't wipe the runtimeCode or progress.
+  // These wrappers keep persistence in sync with the setters.
+  const setScreen = (value) => {
+    setScreenRaw(value);
+    savePersisted("screen", value);
+  };
+  const setDeclaration = (value) => {
+    setDeclarationRaw(value);
+    savePersisted("declaration", value);
+  };
+
+  const [form, setFormRaw] = useState(() => {
+    const persisted = loadPersisted("form");
+    return (
+      persisted || {
+        declarantFullName: "",
+        declarantRole: "",
+        businessName: buyerName || "",
+        language
+      }
+    );
   });
+
+  const setForm = (updater) => {
+    setFormRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      savePersisted("form", next);
+      return next;
+    });
+  };
+
+  const [permStatus, setPermStatus] = useState(initialPermissionState);
+  const [permRequesting, setPermRequesting] = useState(null);
+  const [permError, setPermError] = useState("");
+  const [gateCoords, setGateCoords] = useState(locationCoords || null);
+  const [gatePassed, setGatePassed] = useState(false);
 
   const [faceState, setFaceState] = useState(initialFaceState);
   const [qualitySnapshot, setQualitySnapshot] = useState(null);
@@ -146,12 +282,29 @@ export default function VideoDeclarationScreen({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // A video declaration reaches a buyer-terminal state in two ways:
+  //   - status === "submitted": the buyer just uploaded, waiting for the reviewer
+  //   - status === "accepted":  the reviewer already accepted; nothing to do
+  // Both should land the buyer on the "done" view, not the re-recordable
+  // camera screen. Bug A11: previously only "submitted" was handled, so a
+  // re-opened KYC with an accepted video showed a camera-availability UI
+  // that the backend would refuse (VIDEO_ALREADY_ACCEPTED).
   const isSubmitted =
     workspace?.kyc?.overallStatus === "submitted" ||
-    declaration?.status === "submitted";
+    declaration?.status === "submitted" ||
+    declaration?.status === "accepted";
 
   const canStartRecording = faceState.ready && !isRecording && !recordedBlob;
   const canSubmit = recordedBlob && qualitySnapshot?.faceCheckPassed;
+
+  // Notify the parent that a master-state-changing operation completed
+  // (script generated, video uploaded). Parent uses this to refresh its
+  // own snapshot of the KYC. Bug A20.
+  const notifyStatusChanged = () => {
+    if (typeof onStatusChanged === "function") {
+      onStatusChanged();
+    }
+  };
 
   function resetRecordingStats() {
     statsRef.current = {
@@ -221,6 +374,218 @@ export default function VideoDeclarationScreen({
     };
   }
 
+  // ---------- Permission gate (camera + microphone + location) ----------
+  // The video declaration legally requires all three. We don't let the buyer
+  // move forward until every permission is "granted" — anything less blocks
+  // the flow with a single "Allow" button per missing permission that re-opens
+  // the browser's native prompt.
+  async function checkAllPermissions() {
+    const next = { ...permStatus };
+
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.permissions &&
+      typeof navigator.permissions.query === "function"
+    ) {
+      // Camera + microphone are queried separately so we can tell the user
+      // which one is still missing. Some browsers throw for these names —
+      // fall back to PROMPT so the Allow button still works.
+      try {
+        const cam = await navigator.permissions.query({ name: "camera" });
+        next.camera =
+          cam.state === "granted"
+            ? PERM_STATUS.GRANTED
+            : cam.state === "denied"
+              ? PERM_STATUS.DENIED
+              : PERM_STATUS.PROMPT;
+      } catch {
+        next.camera = PERM_STATUS.PROMPT;
+      }
+
+      try {
+        const mic = await navigator.permissions.query({ name: "microphone" });
+        next.microphone =
+          mic.state === "granted"
+            ? PERM_STATUS.GRANTED
+            : mic.state === "denied"
+              ? PERM_STATUS.DENIED
+              : PERM_STATUS.PROMPT;
+      } catch {
+        next.microphone = PERM_STATUS.PROMPT;
+      }
+
+      try {
+        const geo = await navigator.permissions.query({ name: "geolocation" });
+        next.location =
+          geo.state === "granted"
+            ? PERM_STATUS.GRANTED
+            : geo.state === "denied"
+              ? PERM_STATUS.DENIED
+              : PERM_STATUS.PROMPT;
+      } catch {
+        next.location = PERM_STATUS.UNSUPPORTED;
+      }
+    } else {
+      next.camera = PERM_STATUS.PROMPT;
+      next.microphone = PERM_STATUS.PROMPT;
+      next.location = PERM_STATUS.UNSUPPORTED;
+    }
+
+    // Detect unsupported environments (http://LAN-IP without secure context,
+    // old browsers, etc.) so we can tell the user the popup will never appear.
+    const isSecure =
+      typeof window === "undefined" ? true : window.isSecureContext;
+    const hasGetUserMedia =
+      typeof navigator !== "undefined" &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function";
+    const hasGeolocation =
+      typeof navigator !== "undefined" &&
+      navigator.geolocation &&
+      typeof navigator.geolocation.getCurrentPosition === "function";
+
+    if (!isSecure && (!hasGetUserMedia || !hasGeolocation)) {
+      next.camera = PERM_STATUS.UNSUPPORTED;
+      next.microphone = PERM_STATUS.UNSUPPORTED;
+      next.location = PERM_STATUS.UNSUPPORTED;
+    } else {
+      if (!hasGetUserMedia) {
+        next.camera = PERM_STATUS.UNSUPPORTED;
+        next.microphone = PERM_STATUS.UNSUPPORTED;
+      }
+      if (!hasGeolocation) {
+        next.location = PERM_STATUS.UNSUPPORTED;
+      }
+    }
+
+    setPermStatus(next);
+
+    if (
+      next.camera === PERM_STATUS.GRANTED &&
+      next.microphone === PERM_STATUS.GRANTED &&
+      next.location === PERM_STATUS.GRANTED
+    ) {
+      setGatePassed(true);
+    }
+
+    return next;
+  }
+
+  async function requestPermission(kind) {
+    if (permRequesting) return;
+
+    setPermRequesting(kind);
+    setPermError("");
+
+    try {
+      if (kind === "location") {
+        if (
+          typeof navigator === "undefined" ||
+          !navigator.geolocation ||
+          typeof navigator.geolocation.getCurrentPosition !== "function"
+        ) {
+          throw new Error("UNSUPPORTED");
+        }
+
+        const position = await new Promise((resolve, reject) => {
+          const settled = { done: false };
+          const finish = (handler, value) => {
+            if (settled.done) return;
+            settled.done = true;
+            handler(value);
+          };
+          try {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => finish(resolve, pos),
+              (err) => finish(reject, err),
+              { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+          } catch (err) {
+            finish(reject, err);
+          }
+        });
+
+        setGateCoords({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy
+        });
+      } else {
+        if (
+          typeof navigator === "undefined" ||
+          !navigator.mediaDevices ||
+          typeof navigator.mediaDevices.getUserMedia !== "function"
+        ) {
+          throw new Error("UNSUPPORTED");
+        }
+
+        // Request only what the user clicked, so the native popup is scoped.
+        // Camera and microphone are technically requested together by the
+        // browser, but we still track them separately so the UI is honest.
+        const constraints =
+          kind === "camera"
+            ? { video: { facingMode: "user" } }
+            : { audio: true };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      // Re-query Permissions API so the row flips to "Allowed" right away.
+      const next = { ...permStatus };
+      next[kind] = PERM_STATUS.GRANTED;
+
+      // When the user grants camera, also flip microphone to PROMPT so the
+      // next Allow button still has work to do. (Browser grants them together
+      // but we keep them logically separate in the UI.)
+      if (kind === "camera" && next.microphone === PERM_STATUS.UNKNOWN) {
+        next.microphone = PERM_STATUS.PROMPT;
+      }
+      if (kind === "microphone" && next.camera === PERM_STATUS.UNKNOWN) {
+        next.camera = PERM_STATUS.PROMPT;
+      }
+
+      setPermStatus(next);
+
+      if (
+        next.camera === PERM_STATUS.GRANTED &&
+        next.microphone === PERM_STATUS.GRANTED &&
+        next.location === PERM_STATUS.GRANTED
+      ) {
+        setGatePassed(true);
+      }
+    } catch (err) {
+      // The browser refuses to re-prompt after an explicit deny, so we have
+      // to teach the user how to flip the switch in their browser settings.
+      const denied =
+        err?.name === "NotAllowedError" ||
+        err?.name === "PermissionDeniedError" ||
+        err?.message === "UNSUPPORTED";
+
+      setPermStatus((prev) => ({
+        ...prev,
+        [kind]: denied
+          ? err?.message === "UNSUPPORTED"
+            ? PERM_STATUS.UNSUPPORTED
+            : PERM_STATUS.DENIED
+          : prev[kind]
+      }));
+
+      if (!denied && err) {
+        setPermError(
+          err?.message || "Unable to request permission. Please try again."
+        );
+      }
+    } finally {
+      setPermRequesting(null);
+    }
+  }
+
+  function handleContinueFromGate() {
+    if (!gatePassed) return;
+    setScreen("details");
+  }
+
   async function loadWorkspace() {
     try {
       setIsLoading(true);
@@ -236,12 +601,20 @@ export default function VideoDeclarationScreen({
       setWorkspace(result);
       setDeclaration(result.declaration);
 
-      if (result.declaration) {
-        if (result.declaration.status === "submitted") {
-          setScreen("done");
-        } else {
-          setScreen("camera");
-        }
+      // Respect the permission gate: only fast-forward past it if every
+      // permission is already granted. Otherwise stay on "permissions" so the
+      // buyer is forced to address any missing permission.
+      if (
+        result.declaration?.status === "submitted" ||
+        result.declaration?.status === "accepted"
+      ) {
+        setScreen("done");
+      } else if (
+        permStatus.camera === PERM_STATUS.GRANTED &&
+        permStatus.microphone === PERM_STATUS.GRANTED &&
+        permStatus.location === PERM_STATUS.GRANTED
+      ) {
+        setScreen("camera");
       }
 
       setForm((prev) => ({
@@ -282,17 +655,60 @@ export default function VideoDeclarationScreen({
     }
   }
 
+  // Track the previous screen so the effect body can decide whether
+  // we're transitioning INTO camera/recording (re-attach stream),
+  // BETWEEN camera and recording (keep stream alive), or OUT of
+  // camera/recording (release stream). The previous implementation
+  // stopped the camera in the cleanup whenever [screen] changed,
+  // which killed the stream on camera→recording and left the buyer
+  // staring at a black <video> on the recording screen. Bug A14+.
+  const prevScreenRef = useRef(null);
+
   useEffect(() => {
-    if ((screen === "camera" || screen === "recording") && streamRef.current) {
+    const wasInCameraOrRecording =
+      prevScreenRef.current === "camera" ||
+      prevScreenRef.current === "recording";
+    const isInCameraOrRecording =
+      screen === "camera" || screen === "recording";
+
+    if (wasInCameraOrRecording && !isInCameraOrRecording) {
+      // Buyer is leaving the camera/recording screens entirely —
+      // release the stream so the LED turns off and the mic LED too.
+      stopCamera();
+    }
+
+    if (isInCameraOrRecording && streamRef.current) {
+      // We're in camera/recording and have a stream — re-attach it
+      // to the current <video> element. This runs on every entry into
+      // these screens (including camera→recording), so the recording
+      // view always shows the buyer's face.
       setTimeout(() => {
         attachStreamToVideo();
       }, 100);
     }
 
-    if (screen === "camera" && !streamRef.current && !isCameraStarting) {
+    if (
+      screen === "camera" &&
+      !wasInCameraOrRecording &&
+      !streamRef.current &&
+      !isCameraStarting &&
+      permStatus.camera === PERM_STATUS.GRANTED &&
+      permStatus.microphone === PERM_STATUS.GRANTED
+    ) {
       startCamera();
     }
-  }, [screen]);
+
+    prevScreenRef.current = screen;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, permStatus.camera, permStatus.microphone]);
+
+  // Final safety net: if the component unmounts while the camera is
+  // running, release the stream. Without this, switching tokens or
+  // navigating away would leave the LED on.
+  useEffect(() => {
+    return () => stopCamera();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadWorkspace();
@@ -304,13 +720,57 @@ export default function VideoDeclarationScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // Run the gate check on mount. If everything is already granted (e.g. the
+  // buyer reloads), we skip straight to the details step.
   useEffect(() => {
-    if (isSubmitted) {
+    let cancelled = false;
+
+    (async () => {
+      const next = await checkAllPermissions();
+      if (cancelled) return;
+
+      if (
+        next.camera === PERM_STATUS.GRANTED &&
+        next.microphone === PERM_STATUS.GRANTED &&
+        next.location === PERM_STATUS.GRANTED
+      ) {
+        setScreen((prev) => (prev === "permissions" ? "details" : prev));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Bug A12: only force "done" when the buyer is NOT actively
+    // recording. A poll / admin action / concurrent tab can flip
+    // declaration.status to "submitted" while the buyer is in the
+    // middle of recording; we must not yank them out of the recording
+    // screen at that point. The post-submit transition is handled
+    // explicitly inside submitVideo itself.
+    if (isSubmitted && !isRecording) {
       setScreen("done");
     }
-  }, [isSubmitted]);
+  }, [isSubmitted, isRecording]);
 
   async function handleGenerateScript() {
+    // Refuse to start a new session if the video is already locked
+    // (accepted or already submitted) — backend would 403. Bug A19.
+    if (
+      declaration?.status === "accepted" ||
+      declaration?.status === "submitted"
+    ) {
+      setError(
+        declaration.status === "accepted"
+          ? "Your video declaration is already accepted and locked. No further action is needed."
+          : "Your video declaration is already submitted and waiting for review."
+      );
+      return;
+    }
+
     try {
       setIsGenerating(true);
       setError("");
@@ -319,8 +779,8 @@ export default function VideoDeclarationScreen({
       const result = await startKycVideoDeclaration(token, {
         ...form,
         language,
-        latitude: locationCoords?.latitude,
-        longitude: locationCoords?.longitude
+        latitude: gateCoords?.latitude ?? locationCoords?.latitude,
+        longitude: gateCoords?.longitude ?? locationCoords?.longitude
       });
 
       if (!result.success) {
@@ -331,6 +791,9 @@ export default function VideoDeclarationScreen({
       setDeclaration(result.declaration);
       setSuccess("Declaration script generated successfully.");
       setScreen("camera");
+      // Backend moves the master to `video_declaration_started`. Notify
+      // the parent so its snapshot and stepper are fresh. Bug A20.
+      notifyStatusChanged();
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -367,6 +830,18 @@ export default function VideoDeclarationScreen({
       setError("");
       setSuccess("");
 
+      // Pre-flight: catch the secure-context case before getUserMedia
+      // throws an opaque error — that's the #1 reason this fails on
+      // http://LAN-IP during local dev.
+      if (
+        typeof window !== "undefined" &&
+        !window.isSecureContext &&
+        (!navigator.mediaDevices ||
+          typeof navigator.mediaDevices.getUserMedia !== "function")
+      ) {
+        throw new Error("INSECURE_CONTEXT");
+      }
+
       await initializeFaceDetector();
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -385,13 +860,37 @@ export default function VideoDeclarationScreen({
       startFaceDetectionLoop();
       setSuccess("Camera started. Keep your face centered for 2 seconds.");
     } catch (err) {
-      setError(
-        err?.message ||
-          "Unable to access camera/microphone. Please allow permissions."
-      );
+      setError(describeMediaError(err));
     } finally {
       setIsCameraStarting(false);
     }
+  }
+
+  function describeMediaError(err) {
+    if (!err) return "Unable to access camera/microphone. Please allow permissions.";
+    if (err.message === "INSECURE_CONTEXT") {
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "this URL";
+      const httpsOrigin = origin.replace(/^http:/, "https:");
+      return (
+        `Camera and microphone are blocked because ${origin} is served over HTTP. ` +
+        `Easiest fix: open ${httpsOrigin} after running \`npm run dev:https\` in the frontend folder. ` +
+        `Or in Chrome: chrome://flags/#unsafely-treat-insecure-origin-as-secure → add "${origin}" → restart Chrome.`
+      );
+    }
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      return "Camera and microphone access was blocked. Please allow access in your browser and try again.";
+    }
+    if (err.name === "NotFoundError") {
+      return "No camera or microphone was found on this device. Please connect one and try again.";
+    }
+    if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+      return "Your camera or microphone is being used by another app. Please close it and try again.";
+    }
+    if (err.name === "SecurityError") {
+      return "Camera and microphone access requires a secure (HTTPS) connection.";
+    }
+    return err.message || "Unable to access camera/microphone. Please allow permissions.";
   }
 
   function startFaceDetectionLoop() {
@@ -566,11 +1065,12 @@ export default function VideoDeclarationScreen({
         JSON.stringify(qualitySnapshot)
       );
 
-      if (locationCoords?.latitude) {
-        formData.append("latitude", String(locationCoords.latitude));
+      const effectiveCoords = gateCoords || locationCoords;
+      if (effectiveCoords?.latitude) {
+        formData.append("latitude", String(effectiveCoords.latitude));
       }
-      if (locationCoords?.longitude) {
-        formData.append("longitude", String(locationCoords.longitude));
+      if (effectiveCoords?.longitude) {
+        formData.append("longitude", String(effectiveCoords.longitude));
       }
 
       const result = await uploadKycVideoDeclaration(token, formData);
@@ -585,12 +1085,25 @@ export default function VideoDeclarationScreen({
       setScreen("done");
       stopCamera();
 
+      // Bug A13: clear the persisted session so a future entry
+      // (e.g. reviewer re-opens the link) starts clean instead of
+      // landing on this buyer's old in-progress screen.
+      savePersisted("screen", null);
+      savePersisted("declaration", null);
+      savePersisted("form", null);
+
       // Advance the parent stepper to "done" (100%) IMMEDIATELY on success.
       // This must run before any further await — a failing re-fetch must never
       // strand the buyer on the 75% "Video" step after a successful submit.
       if (typeof onSubmitted === "function") {
         onSubmitted();
       }
+
+      // Bug A20: silently refresh the parent's snapshot so the BuyerLayout
+      // stepper and any "done" view shows the correct overallStatus/currentStage
+      // (otherwise it stays at the pre-submit value until the user navigates
+      // back to the parent).
+      notifyStatusChanged();
     } catch (err) {
       setError(
         err?.response?.data?.message ||
@@ -603,6 +1116,20 @@ export default function VideoDeclarationScreen({
 
   return (
     <div className="rounded-2xl space-y-6">
+      {screen === "permissions" && (
+        <VideoPermissionGate
+          t={PERMISSION_GATE_TEXT[language] || PERMISSION_GATE_TEXT.en}
+          permStatus={permStatus}
+          permRequesting={permRequesting}
+          permError={permError}
+          gatePassed={gatePassed}
+          onAllow={requestPermission}
+          onContinue={handleContinueFromGate}
+          onRecheck={checkAllPermissions}
+          onBack={onBack}
+        />
+      )}
+
       {screen === "details" && (
         <VideoDetailsStep
           t={t}
@@ -662,6 +1189,262 @@ export default function VideoDeclarationScreen({
       {screen === "done" && (
         <VideoDoneStep t={t} onBack={onBack} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Hard permission gate shown before the video declaration form.
+ *
+ * Camera + microphone + location are all mandatory. Each row shows the
+ * current state ("Tap Allow" / "Allowed" / "Blocked" / "Not supported") and
+ * exposes a single Allow button per missing permission. Clicking the button
+ * re-opens the browser's native permission prompt. Once all three are
+ * granted, the "Continue" button activates and advances to the existing
+ * details / camera / recording flow.
+ *
+ * If a permission ends up in DENIED state, the native popup will no longer
+ * fire — we replace the button with a small browser-settings hint.
+ */
+function VideoPermissionGate({
+  t,
+  permStatus,
+  permRequesting,
+  permError,
+  gatePassed,
+  onAllow,
+  onContinue,
+  onRecheck,
+  onBack
+}) {
+  const rows = [
+    {
+      key: "camera",
+      label: t.cameraLabel,
+      desc: t.cameraDesc,
+      Icon: Camera
+    },
+    {
+      key: "microphone",
+      label: t.micLabel,
+      desc: t.micDesc,
+      Icon: Mic
+    },
+    {
+      key: "location",
+      label: t.locationLabel,
+      desc: t.locationDesc,
+      Icon: MapPin
+    }
+  ];
+
+  const grantedCount = rows.filter(
+    (r) => permStatus[r.key] === PERM_STATUS.GRANTED
+  ).length;
+  const allGranted = grantedCount === rows.length;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill status="active" label="Documents completed" />
+        <StatusPill status="pending" label="Permissions required" />
+      </div>
+
+      <h1 className="mt-7 text-2xl font-bold tracking-tight text-navy sm:text-3xl">
+        {t.title}
+      </h1>
+
+      <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
+        {t.subtitle}
+      </p>
+
+      <div className="mt-5 flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-3.5">
+        <ShieldCheck
+          size={18}
+          className="mt-0.5 shrink-0 text-blue-700"
+        />
+        <p className="text-xs leading-5 text-slate-600">{t.introNote}</p>
+      </div>
+
+      <div className="mt-8 space-y-3">
+        {rows.map(({ key, label, desc, Icon }) => {
+          const status = permStatus[key];
+          return (
+            <PermissionRow
+              key={key}
+              Icon={Icon}
+              label={label}
+              desc={desc}
+              status={status}
+              t={t}
+              isLoading={permRequesting === key}
+              anyLoading={!!permRequesting}
+              onAllow={() => onAllow(key)}
+            />
+          );
+        })}
+      </div>
+
+      {permError ? (
+        <div className="mt-4 rounded-xl border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
+          {permError}
+        </div>
+      ) : null}
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            {grantedCount}/{rows.length} {label_for_count(rows.length)}
+          </p>
+          <button
+            type="button"
+            onClick={onRecheck}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-200"
+          >
+            <RefreshCcw size={13} />
+            {t.statusChecking}
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={onContinue}
+            disabled={!gatePassed || !allGranted}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-navy px-6 py-3 text-sm font-semibold text-white transition hover:bg-navy/90 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
+          >
+            {t.continue}
+            <ArrowRight size={17} />
+          </button>
+
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+          >
+            <ArrowLeft size={17} />
+            Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function label_for_count(n) {
+  return n === 1 ? "permission allowed" : "permissions allowed";
+}
+
+function PermissionRow({
+  Icon,
+  label,
+  desc,
+  status,
+  t,
+  isLoading,
+  anyLoading,
+  onAllow
+}) {
+  const isGranted = status === PERM_STATUS.GRANTED;
+  const isDenied = status === PERM_STATUS.DENIED;
+  const isUnsupported = status === PERM_STATUS.UNSUPPORTED;
+  const isPrompt = status === PERM_STATUS.PROMPT || status === PERM_STATUS.UNKNOWN;
+
+  const statusLabel = isGranted
+    ? t.statusGranted
+    : isDenied
+      ? t.statusDenied
+      : isUnsupported
+        ? t.statusUnsupported
+        : t.statusPrompt;
+
+  const statusTone = isGranted
+    ? "bg-emerald-50 text-emerald-700"
+    : isDenied
+      ? "bg-red-50 text-red-700"
+      : isUnsupported
+        ? "bg-slate-100 text-slate-500"
+        : "bg-amber-50 text-amber-700";
+
+  const containerTone = isGranted
+    ? "border-emerald-200 bg-emerald-50/40"
+    : isDenied
+      ? "border-red-200 bg-red-50/40"
+      : isUnsupported
+        ? "border-slate-200 bg-slate-50"
+        : "border-amber-200 bg-amber-50/40";
+
+  const iconTone = isGranted
+    ? "bg-emerald-100 text-emerald-700"
+    : isDenied
+      ? "bg-red-100 text-red-700"
+      : isUnsupported
+        ? "bg-slate-200 text-slate-500"
+        : "bg-amber-100 text-amber-700";
+
+  return (
+    <div
+      className={`rounded-2xl border p-4 transition ${containerTone}`}
+      data-status={status}
+    >
+      <div className="flex items-start gap-4">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconTone}`}
+        >
+          <Icon size={20} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-navy">{label}</p>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${statusTone}`}
+            >
+              {isGranted ? (
+                <CheckCircle2 size={11} />
+              ) : isDenied ? (
+                <ShieldAlert size={11} />
+              ) : null}
+              {statusLabel}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{desc}</p>
+
+          {isDenied ? (
+            <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-red-100 bg-white p-2.5 text-[11px] leading-5 text-red-700">
+              <ShieldAlert size={13} className="mt-0.5 shrink-0" />
+              <span>{t.blockedHint}</span>
+            </div>
+          ) : null}
+
+          {isUnsupported ? (
+            <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] leading-5 text-slate-600">
+              <ShieldAlert size={13} className="mt-0.5 shrink-0" />
+              <span>{t.secureContextHint}</span>
+            </div>
+          ) : null}
+        </div>
+
+        {!isGranted && !isUnsupported ? (
+          <button
+            type="button"
+            onClick={onAllow}
+            disabled={anyLoading}
+            className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold uppercase tracking-[0.1em] transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              isDenied
+                ? "border border-red-200 bg-white text-red-700 hover:bg-red-50"
+                : isPrompt
+                  ? "bg-navy text-white hover:bg-navy/90"
+                  : "bg-slate-200 text-slate-600"
+            }`}
+          >
+            {isLoading ? (
+              <Loader2 className="animate-spin" size={14} />
+            ) : null}
+            {isDenied ? t.settingsCta : t.allow}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -23,7 +23,11 @@ router.post("/video/:declarationId/review", reviewVideo);
 
 router.post("/kyc-cases/:kycId/final-decision", finalDecision);
 
-router.post("/manual-kyc", async (req, res, next) => {
+// Bug B11: manual-kyc was open to any reviewer, who could then use
+// duplicate-PAN responses to enumerate which PANs have an existing KYC.
+// Restrict to admins only. Also add an audit log row with the actor's
+// id so any manual KYC creation is traceable.
+router.post("/manual-kyc", requireRole("admin"), async (req, res, next) => {
   try {
     const result = await createManualKyc(req);
     return res.status(result?.statusCode || 200).json(

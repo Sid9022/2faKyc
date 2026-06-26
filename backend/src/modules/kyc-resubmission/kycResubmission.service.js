@@ -1,6 +1,7 @@
 const prisma = require("../../config/prisma");
 const { hashKycToken } = require("../kyc-link/kycLink.utils");
-const { decryptField } = require("../../utils/crypto.util");
+const { maskEmail } = require("../../utils/crypto.util");
+const { isResubmissionMode, isFinalKycStatus } = require("../../utils/kycStage.util");
 
 async function getResubmissionWorkspace(rawToken) {
   const tokenHash = hashKycToken(rawToken);
@@ -72,6 +73,22 @@ async function getResubmissionWorkspace(rawToken) {
     };
   }
 
+  // Bug A17: a buyer with a still-active link can otherwise keep
+  // hitting this endpoint after a terminal decision (approved / rejected
+  // / expired / cancelled). The document and video endpoints refuse
+  // this with `KYC_ALREADY_FINALIZED`; the resubmission endpoint must
+  // match. Without the guard, an approved KYC's full PII stays reachable
+  // via the resubmission workspace until the link expires.
+  if (isFinalKycStatus(link.kyc)) {
+    return {
+      success: false,
+      statusCode: 409,
+      code: "KYC_ALREADY_FINALIZED",
+      message:
+        "This KYC has already been finalized. No further changes can be made."
+    };
+  }
+
   const kyc = link.kyc;
 
   const documents = kyc.documentSubmissions || [];
@@ -130,16 +147,18 @@ async function getResubmissionWorkspace(rawToken) {
   return {
     success: true,
     message: "Resubmission workspace loaded.",
-    mode:
-      kyc.overallStatus === "resubmission_required" ||
-      kyc.currentStage?.startsWith("resubmission")
-        ? "resubmission_required"
-        : "not_in_resubmission",
+    mode: isResubmissionMode(kyc) ? "resubmission_required" : "not_in_resubmission",
     nextAction,
     kyc: {
       kycId: kyc.id,
       buyerName: kyc.buyerName,
-      buyerEmail: decryptField(kyc.buyerEmail),
+      // Bug A18: never decrypt the buyer's email on a buyer-facing
+      // endpoint. The other buyer endpoints (openKycLink, getDocument
+      // workspace) only return masked PII. Return the masked email
+      // (`a***e@domain.com`) so the field stays useful for debugging
+      // without leaking plaintext. The frontend does not currently
+      // render this field.
+      buyerEmail: maskEmail(kyc.buyerEmail),
       panMasked: kyc.panMasked,
       entityType: kyc.entityType,
       entityLabel: kyc.entityLabel,

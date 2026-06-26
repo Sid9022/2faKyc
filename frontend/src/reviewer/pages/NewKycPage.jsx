@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -11,6 +10,48 @@ import {
 } from "lucide-react";
 import { createManualKyc, getCurrentUser } from "../../api/kycApi";
 import StaffLayout from "../../components/layout/StaffLayout";
+
+const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+function validateManualKycForm(data) {
+  const errors = {};
+
+  const purchaseId = (data.purchaseId || "").trim();
+  if (purchaseId.length < 3) {
+    errors.purchaseId = "Purchase ID must be at least 3 characters.";
+  }
+
+  const buyerName = (data.buyerName || "").trim();
+  if (buyerName.length < 2) {
+    errors.buyerName = "Buyer name must be at least 2 characters.";
+  }
+
+  const buyerEmail = (data.buyerEmail || "").trim();
+  if (!buyerEmail) {
+    errors.buyerEmail = "Email is required.";
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) {
+    errors.buyerEmail = "Enter a valid email address.";
+  }
+
+  const pan = (data.pan || "").trim();
+  if (pan.length < 10) {
+    errors.pan = "PAN must be 10 characters.";
+  } else if (!PAN_REGEX.test(pan)) {
+    errors.pan = "Invalid PAN format. Expected: AAAAA9999A (e.g. ABCPE1234F)";
+  }
+
+  const amountRaw = data.amount;
+  if (amountRaw === "" || amountRaw === null || amountRaw === undefined) {
+    errors.amount = "Amount is required.";
+  } else {
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      errors.amount = "Amount must be greater than 0.";
+    }
+  }
+
+  return errors;
+}
 
 export default function NewKycPage() {
   const isAdmin = getCurrentUser()?.role === "admin";
@@ -26,10 +67,18 @@ export default function NewKycPage() {
     amount: ""
   });
 
+  const [touched, setTouched] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successResult, setSuccessResult] = useState(null);
   const [copied, setCopied] = useState(false);
+
+  const fieldErrors = useMemo(
+    () => validateManualKycForm(formData),
+    [formData]
+  );
+
+  const showError = (field) => Boolean(touched[field] && fieldErrors[field]);
 
   const navItems = [
     { key: "cases", label: "KYC cases", icon: FileSearch, to: "/reviewer/cases" },
@@ -53,44 +102,109 @@ export default function NewKycPage() {
       ...prev,
       [name]: name === "pan" ? value.toUpperCase() : value
     }));
+    setTouched((prev) => ({ ...prev, [name]: true }));
+  };
+
+  const handleBlur = (e) => {
+    const { name } = e.target;
+    setTouched((prev) => ({ ...prev, [name]: true }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setIsSubmitting(true);
+
+    // Mark every field as touched so all client-side errors become visible.
+    setTouched(
+      Object.keys(formData).reduce((acc, key) => {
+        acc[key] = true;
+        return acc;
+      }, {})
+    );
+
+    if (Object.keys(fieldErrors).length > 0) {
+      setError("Please fix the highlighted fields before submitting.");
+      return;
+    }
 
     try {
+      setIsSubmitting(true);
+
       const payload = {
         ...formData,
-        amount: formData.amount ? parseFloat(formData.amount) : undefined
+        amount: Number(formData.amount)
       };
 
       const result = await createManualKyc(payload);
 
       if (result.success) {
+        // Bug B5: do NOT receive or display the raw buyer KYC URL.
+        // It is delivered to the buyer by email; exposing it to the
+        // reviewer's response (and dev tools, logs, etc.) makes it
+        // capture-and-replay trivial. We only retain the opaque
+        // linkId so the reviewer can correlate with sent emails.
         setSuccessResult({
-          linkId: result.kycLink.linkId,
-          buyerKycUrl: result.kycLink.buyerKycUrl,
+          linkId: result.kycLink?.linkId,
           message: result.message
         });
       } else {
         setError(result.message || "Failed to create KYC.");
       }
     } catch (err) {
+      // Normalize axios error into a friendly message; if the backend sent
+      // a structured `errors` map (from zod), surface those too.
+      const data = err?.response?.data;
+      if (data?.errors && typeof data.errors === "object") {
+        const parts = Object.entries(data.errors)
+          .map(([field, msgs]) => {
+            if (Array.isArray(msgs) && msgs.length > 0) {
+              return `${field}: ${msgs.join(", ")}`;
+            }
+            return null;
+          })
+          .filter(Boolean);
+        if (parts.length > 0) {
+          setError(parts.join(" | "));
+          return;
+        }
+      }
       setError(
-        err?.response?.data?.message || "Something went wrong while creating the KYC."
+        data?.message || "Something went wrong while creating the KYC."
       );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const copyToClipboard = () => {
-    if (!successResult) return;
-    navigator.clipboard.writeText(successResult.buyerKycUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyToClipboard = async () => {
+    // Bug B5: the raw URL is no longer in the response. The Copy
+    // button now copies the opaque linkId for correlation with the
+    // sent email. If the reviewer needs to retrieve the URL out of
+    // band, they should look at the sent email (which is auditable).
+    if (!successResult?.linkId) return;
+    const text = successResult.linkId;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.top = "-1000px";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (!ok) throw new Error("execCommand copy failed");
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Copy failed:", err);
+      setCopied(false);
+    }
   };
 
   const resetForm = () => {
@@ -104,6 +218,7 @@ export default function NewKycPage() {
       serviceType: "SMS",
       amount: ""
     });
+    setTouched({});
     setSuccessResult(null);
     setError("");
   };
@@ -128,19 +243,23 @@ export default function NewKycPage() {
 
             <div className="mx-auto mt-6 max-w-md rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Generated Link
+                Link ID (for reference)
               </p>
               <div className="mt-2 flex items-center justify-between gap-3">
-                <p className="truncate text-sm font-medium text-slate-700">
-                  {successResult.buyerKycUrl}
+                <p className="truncate font-mono text-xs text-slate-700">
+                  {successResult.linkId}
                 </p>
                 <button
                   type="button"
                   onClick={copyToClipboard}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100"
+                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+                    copied
+                      ? "bg-green-600 text-white"
+                      : "bg-white text-slate-600 hover:bg-slate-100"
+                  }`}
                 >
                   <Copy size={14} />
-                  {copied ? "Copied!" : "Copy"}
+                  {copied ? "Copied" : "Copy"}
                 </button>
               </div>
             </div>
@@ -167,10 +286,15 @@ export default function NewKycPage() {
                     name="purchaseId"
                     value={formData.purchaseId}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="e.g. UTR or Transaction Ref"
                     required
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    aria-invalid={showError("purchaseId")}
+                    className={inputClass(showError("purchaseId"))}
                   />
+                  {showError("purchaseId") && (
+                    <FieldError message={fieldErrors.purchaseId} />
+                  )}
                 </div>
 
                 <div className="sm:col-span-2">
@@ -181,8 +305,9 @@ export default function NewKycPage() {
                     name="idempotencyKey"
                     value={formData.idempotencyKey}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="Leave empty to use Purchase ID"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    className={inputClass(false)}
                   />
                 </div>
 
@@ -194,10 +319,15 @@ export default function NewKycPage() {
                     name="buyerName"
                     value={formData.buyerName}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="Full name of the buyer"
                     required
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    aria-invalid={showError("buyerName")}
+                    className={inputClass(showError("buyerName"))}
                   />
+                  {showError("buyerName") && (
+                    <FieldError message={fieldErrors.buyerName} />
+                  )}
                 </div>
 
                 <div>
@@ -209,10 +339,15 @@ export default function NewKycPage() {
                     type="email"
                     value={formData.buyerEmail}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="Email address"
                     required
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    aria-invalid={showError("buyerEmail")}
+                    className={inputClass(showError("buyerEmail"))}
                   />
+                  {showError("buyerEmail") && (
+                    <FieldError message={fieldErrors.buyerEmail} />
+                  )}
                 </div>
 
                 <div>
@@ -223,8 +358,9 @@ export default function NewKycPage() {
                     name="buyerMobile"
                     value={formData.buyerMobile}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="Mobile number"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    className={inputClass(false)}
                   />
                 </div>
 
@@ -236,11 +372,16 @@ export default function NewKycPage() {
                     name="pan"
                     value={formData.pan}
                     onChange={handleChange}
-                    placeholder="10-digit PAN"
+                    onBlur={handleBlur}
+                    placeholder="10-digit PAN (AAAAA9999A)"
                     maxLength={10}
                     required
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm uppercase outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    aria-invalid={showError("pan")}
+                    className={inputClass(showError("pan"))}
                   />
+                  {showError("pan") && (
+                    <FieldError message={fieldErrors.pan} />
+                  )}
                 </div>
 
                 <div>
@@ -271,10 +412,15 @@ export default function NewKycPage() {
                     min="0"
                     value={formData.amount}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     placeholder="0.00"
                     required
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-navy focus:bg-white focus:ring-1 focus:ring-navy"
+                    aria-invalid={showError("amount")}
+                    className={inputClass(showError("amount"))}
                   />
+                  {showError("amount") && (
+                    <FieldError message={fieldErrors.amount} />
+                  )}
                 </div>
               </div>
 
@@ -301,5 +447,21 @@ export default function NewKycPage() {
         )}
       </div>
     </StaffLayout>
+  );
+}
+
+function inputClass(hasError) {
+  return [
+    "w-full rounded-xl border bg-slate-50 px-4 py-3 text-sm outline-none transition",
+    "focus:bg-white focus:ring-1",
+    hasError
+      ? "border-red-300 focus:border-red-500 focus:ring-red-500"
+      : "border-slate-200 focus:border-navy focus:ring-navy"
+  ].join(" ");
+}
+
+function FieldError({ message }) {
+  return (
+    <p className="mt-1.5 text-xs font-medium text-red-600">{message}</p>
   );
 }

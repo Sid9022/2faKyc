@@ -11,17 +11,12 @@ const {
   removeQuietly
 } = require("../../utils/fileStorage.util");
 const { runAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
-
-const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
-
-function isResubmissionMode(kyc) {
-  return (
-    kyc.overallStatus === "resubmission_required" ||
-    kyc.currentStage === "resubmission_required" ||
-    kyc.currentStage === "resubmission_document_upload_in_progress" ||
-    kyc.currentStage === "resubmission_video_pending"
-  );
-}
+const { lookupIpGeolocation } = require("../../utils/ipGeolocation.util");
+const {
+  isResubmissionMode,
+  isFinalKycStatus,
+  FINAL_KYC_STATUSES
+} = require("../../utils/kycStage.util");
 
 function generateRuntimeCode() {
   return String(crypto.randomInt(100000, 999999));
@@ -408,9 +403,26 @@ async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
   const faceQualityMetadata = parseFaceMetadata(body.faceQualityMetadata);
   const durationSeconds = parseNumber(body.durationSeconds);
   const parsedLat = parseFloat(body.latitude);
-  const latitude = Number.isFinite(parsedLat) ? parsedLat : null;
   const parsedLng = parseFloat(body.longitude);
-  const longitude = Number.isFinite(parsedLng) ? parsedLng : null;
+  let latitude = Number.isFinite(parsedLat) ? parsedLat : null;
+  let longitude = Number.isFinite(parsedLng) ? parsedLng : null;
+  let locationSource = latitude != null && longitude != null ? "browser" : null;
+  let locationCity = null;
+  let locationCountry = null;
+
+  // If the buyer couldn't share precise GPS (insecure-context dev box,
+  // permission denied, no geolocation API), fall back to a best-effort
+  // IP geolocation. Never throws and never blocks the submission.
+  if (latitude == null || longitude == null) {
+    const ipGeo = await lookupIpGeolocation(requestMeta.ipAddress);
+    if (ipGeo) {
+      latitude = ipGeo.latitude;
+      longitude = ipGeo.longitude;
+      locationSource = "ip";
+      locationCity = ipGeo.city || null;
+      locationCountry = ipGeo.country || null;
+    }
+  }
 
   if (!faceCheckPassed) {
     return {
@@ -464,7 +476,14 @@ async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
           publicPath: null,
           durationSeconds,
           faceCheckPassed,
-          faceQualityMetadata,
+          faceQualityMetadata: locationSource
+            ? {
+                ...(faceQualityMetadata || {}),
+                locationSource,
+                locationCity,
+                locationCountry
+              }
+            : faceQualityMetadata,
           ipAddress: requestMeta.ipAddress || null,
           userAgent: requestMeta.userAgent || null,
           latitude: latitude || null,

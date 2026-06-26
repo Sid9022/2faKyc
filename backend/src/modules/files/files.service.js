@@ -18,6 +18,14 @@ async function findVideoAttempt(attemptId) {
 /**
  * Resolves the KYC id owned by a buyer link token (active or not — buyers
  * may need to see their own already-submitted files even after decisions).
+ *
+ * Bug B12: the previous implementation returned null for any link
+ * that wasn't `active` AND unexpired. The doc-comment above promised
+ * post-decision access. Honoring it now: any valid link → its kycId,
+ * regardless of status or expiry. Cross-KYC isolation is enforced at
+ * the route layer (file.kycId === link.kycId), so a revoked link
+ * still cannot read another buyer's files — it can only read its own
+ * already-submitted artifacts.
  */
 async function getKycIdByToken(rawToken) {
   const link = await prisma.kycLink.findUnique({
@@ -26,7 +34,6 @@ async function getKycIdByToken(rawToken) {
   });
 
   if (!link) return null;
-  if (link.status !== "active" || link.expiresAt <= new Date()) return null;
 
   return link.kycId;
 }

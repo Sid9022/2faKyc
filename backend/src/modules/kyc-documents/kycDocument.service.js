@@ -16,15 +16,11 @@ const {
   isPanDocument,
   validatePanCardForKyc
 } = require("../pan-validation/panValidation.service");
-
-const FINAL_KYC_STATUSES = ["approved", "rejected", "expired", "cancelled"];
-
-function isResubmissionMode(kyc) {
-  return (
-    kyc.overallStatus === "resubmission_required" ||
-    kyc.currentStage === "resubmission_required"
-  );
-}
+const {
+  isResubmissionMode,
+  isFinalKycStatus,
+  FINAL_KYC_STATUSES
+} = require("../../utils/kycStage.util");
 
 function getFilesFromRequest(files = {}) {
   const result = [];
