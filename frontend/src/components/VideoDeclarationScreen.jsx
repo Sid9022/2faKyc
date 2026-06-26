@@ -15,9 +15,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   UserRound,
-  Video
+  Video,
+  Volume2
 } from "lucide-react";
 import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
+import SectionCard from "./ui/SectionCard";
+import { formatStatusLabel } from "./statusStyles";
+import useAudioGuide from "../hooks/useAudioGuide";
 
 import {
   API_BASE_URL,
@@ -170,6 +174,16 @@ export default function VideoDeclarationScreen({
 }) {
   const t = content[language] || content.en;
 
+  const [screenRaw, setScreenRaw] = useState("permissions");
+
+  useAudioGuide(
+    screenRaw === "permissions" || screenRaw === "camera"
+      ? "5"
+      : screenRaw === "record"
+      ? "6"
+      : null
+  );
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -179,6 +193,8 @@ export default function VideoDeclarationScreen({
   const detectionTimerRef = useRef(null);
   const prevBoxRef = useRef(null);
   const consecutiveGoodRef = useRef(0);
+  const consecutiveBadRecordingFramesRef = useRef(0);
+  const recordingErrorRef = useRef(null);
   const recordingRef = useRef(false);
   const recordingStartedAtRef = useRef(null);
 
@@ -226,7 +242,15 @@ export default function VideoDeclarationScreen({
 
   const [workspace, setWorkspace] = useState(null);
   const [declaration, setDeclarationRaw] = useState(loadPersisted("declaration"));
-  const [screen, setScreenRaw] = useState(loadPersisted("screen") || "permissions");
+  // screenRaw is already defined above
+  useEffect(() => {
+    const savedScreen = loadPersisted("screen");
+    if (savedScreen) {
+      setScreenRaw(savedScreen);
+    }
+  }, []);
+  const screen = screenRaw;
+  const [recordingError, setRecordingError] = useState("");
 
   // Bug A13: persist screen and declaration to sessionStorage so a
   // page reload mid-flow doesn't wipe the runtimeCode or progress.
@@ -349,13 +373,11 @@ export default function VideoDeclarationScreen({
 
     const faceCheckPassed =
       duration >= 6 &&
-      faceVisibleRatio >= 0.65 &&
-      singleFaceRatio >= 0.75 &&
+      faceVisibleRatio >= 0.90 &&
       centeredRatio >= 0.5 &&
       goodSizeRatio >= 0.5 &&
       lightingOkRatio >= 0.45 &&
-      stableRatio >= 0.45 &&
-      stats.multipleFaceCount <= 1;
+      stableRatio >= 0.45;
 
     return {
       faceCheckPassed,
@@ -932,6 +954,16 @@ export default function VideoDeclarationScreen({
 
       if (recordingRef.current) {
         updateRecordingStats(analysis);
+        
+        if (analysis.faceCount === 0) {
+          consecutiveBadRecordingFramesRef.current += 1;
+          if (consecutiveBadRecordingFramesRef.current >= 2) {
+            recordingErrorRef.current = "Recording stopped automatically. Face was not detected or hidden. Please record again.";
+            stopRecording();
+          }
+        } else {
+          consecutiveBadRecordingFramesRef.current = 0;
+        }
       }
     }, 700);
   }
@@ -958,6 +990,8 @@ export default function VideoDeclarationScreen({
     resetRecordingStats();
     prevBoxRef.current = null;
     consecutiveGoodRef.current = 0;
+    consecutiveBadRecordingFramesRef.current = 0;
+    recordingErrorRef.current = null;
 
     setError("");
     setSuccess("");
@@ -991,20 +1025,30 @@ export default function VideoDeclarationScreen({
 
       const snapshot = buildQualitySnapshot(duration);
 
-      setRecordedBlob(blob);
-      setPreviewUrl(URL.createObjectURL(blob));
-      setDurationSeconds(duration);
-      setQualitySnapshot(snapshot);
-      setSuccess(
-        snapshot.faceCheckPassed
-          ? "Recording completed. Preview and submit your declaration."
-          : "Recording completed, but quality check is weak. Please retake."
-      );
-
       recordingRef.current = false;
       setIsRecording(false);
-      setScreen("preview");
-      stopCamera();
+
+      if (recordingErrorRef.current) {
+        setRecordingError(recordingErrorRef.current);
+        setSuccess("");
+        setRecordedBlob(null);
+        setPreviewUrl("");
+        setQualitySnapshot(null);
+        // Do not stopCamera() so feed stays alive.
+        recordingErrorRef.current = null;
+      } else {
+        stopCamera();
+        setRecordedBlob(blob);
+        setPreviewUrl(URL.createObjectURL(blob));
+        setDurationSeconds(duration);
+        setQualitySnapshot(snapshot);
+        setSuccess(
+          snapshot.faceCheckPassed
+            ? "Recording completed. Preview and submit your declaration."
+            : "Recording completed, but quality check is weak. Please retake."
+        );
+        setScreen("preview");
+      }
     };
 
     recorderRef.current = recorder;
@@ -1114,6 +1158,14 @@ export default function VideoDeclarationScreen({
     }
   }
 
+  // Auto-start camera when landing on the "camera" readiness check step
+  useEffect(() => {
+    if (screen === "camera" && !streamRef.current && !isCameraStarting) {
+      startCamera();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
   return (
     <div className="rounded-2xl space-y-6">
       {screen === "permissions" && (
@@ -1168,6 +1220,11 @@ export default function VideoDeclarationScreen({
           canStartRecording={canStartRecording}
           faceState={faceState}
           onBack={() => setScreen("camera")}
+          recordingError={recordingError}
+          onRecordAgain={() => {
+            setRecordingError("");
+            startRecording();
+          }}
         />
       )}
 
@@ -1605,36 +1662,22 @@ function VideoCameraStep({
         Align your face in the center. We need a steady, clear picture to start recording.
       </p>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div>
-          <LiveCameraFrame
-            videoRef={videoRef}
-            canvasRef={canvasRef}
-            declaration={declaration}
-            showScript={false}
-          />
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+      <div className="mt-8 mx-auto max-w-2xl">
+        <LiveCameraFrame
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          declaration={declaration}
+          showScript={false}
+          faceState={faceState}
+        />
+        <div className="mt-4 text-center">
           <p className="text-sm font-semibold text-navy">
             Status: {faceState.message}
           </p>
-
-          <div className="mt-5 space-y-2">
-            <CheckItem label="Exactly one face" ok={faceState.hasOneFace} />
-            <CheckItem label="Face centered" ok={faceState.centered} />
-            <CheckItem label="Good face size" ok={faceState.goodSize} />
-            <CheckItem label="Lighting okay" ok={faceState.lightingOk} />
-            <CheckItem label="Face stable" ok={faceState.stable} />
-            <CheckItem
-              label="Stable for 2 seconds"
-              ok={faceState.consecutiveGoodChecks >= 3}
-            />
-          </div>
         </div>
       </div>
 
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+      <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
         <button
           type="button"
           onClick={startCamera}
@@ -1705,7 +1748,9 @@ function VideoRecordingStep({
   stopRecording,
   canStartRecording,
   faceState,
-  onBack
+  onBack,
+  recordingError,
+  onRecordAgain
 }) {
   const isMobile = useIsMobile();
 
@@ -1725,6 +1770,9 @@ function VideoRecordingStep({
           startRecording={startRecording}
           stopRecording={stopRecording}
           onBack={onBack}
+          faceState={faceState}
+          recordingError={recordingError}
+          onRecordAgain={onRecordAgain}
         />
       </div>
     );
@@ -1749,14 +1797,19 @@ function VideoRecordingStep({
         Make sure to read the runtime verification code clearly.
       </p>
 
-      <LiveCameraFrame
-        videoRef={videoRef}
-        canvasRef={canvasRef}
-        declaration={declaration}
-        showScript={true}
-      />
+      <div className="mx-auto max-w-2xl">
+        <LiveCameraFrame
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          declaration={declaration}
+          showScript={true}
+          faceState={faceState}
+          recordingError={recordingError}
+          onRecordAgain={onRecordAgain}
+        />
+      </div>
 
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+      <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
         {!isRecording ? (
           <button
             type="button"
@@ -1808,7 +1861,10 @@ function MobileRecorderView({
   canStartRecording,
   startRecording,
   stopRecording,
-  onBack
+  onBack,
+  faceState,
+  recordingError,
+  onRecordAgain
 }) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -1829,9 +1885,10 @@ function MobileRecorderView({
   const minutes = Math.floor(elapsed / 60);
   const seconds = elapsed % 60;
   const timeLabel = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  const borderColor = faceState?.ready ? "border-emerald-500" : "border-red-500";
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-gray-950 shadow-xl">
+    <div className={`overflow-hidden rounded-2xl border-4 bg-gray-950 shadow-xl transition-colors duration-300 ${borderColor}`}>
       {/* Top bar — back, timer, status */}
       <div className="flex items-center justify-between bg-black/60 px-4 py-3 text-white">
         <button
@@ -1860,25 +1917,47 @@ function MobileRecorderView({
 
       {/* Camera area — 3:4 portrait, fills the phone screen */}
       <div className="relative aspect-[3/4]">
+        {recordingError && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-6 text-center backdrop-blur-sm">
+            <UserRound size={48} className="text-red-500 mb-4" />
+            <p className="text-xl font-bold text-white">Face Not Visible</p>
+            <p className="mt-2 text-sm text-white/80 max-w-sm mx-auto">{recordingError}</p>
+            <button
+              onClick={onRecordAgain}
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-red-600 px-6 py-3 text-white font-bold transition hover:bg-red-700 active:scale-95 shadow-lg shadow-red-500/30"
+            >
+              <Video size={18} />
+              Record Again
+            </button>
+          </div>
+        )}
         {/* Script strip (full text, scrollable) */}
         {declaration ? (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-col gap-2 p-3">
-            <div className="flex items-center justify-center gap-2 self-center rounded-full bg-black/70 px-4 py-2 backdrop-blur-md">
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/70">
-                Code
-              </span>
-              <span className="text-base font-black tracking-[0.18em] text-white tabular-nums">
-                {declaration.runtimeCode}
-              </span>
-            </div>
-
-            <div className="pointer-events-auto max-h-28 overflow-y-auto rounded-2xl bg-black/65 p-3 backdrop-blur-md">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">
-                Read clearly
-              </p>
-              <p className="mt-1 text-xs leading-5 text-white">
-                {declaration.scriptText}
-              </p>
+          <div className="absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-3">
+            <div className="rounded-xl bg-black/80 p-3 text-center backdrop-blur-md">
+              <div className="flex items-center justify-between">
+                <div className="text-left">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/60">
+                    Verification Code
+                  </p>
+                  <p className="text-2xl font-black tracking-widest text-white">
+                    {declaration.runtimeCode}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => speakText(`My name is ${declaration.declarantFullName}, and my code is ${declaration.runtimeCode}.`)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition active:scale-95"
+                  aria-label="Listen to script"
+                >
+                  <Volume2 size={14} />
+                </button>
+              </div>
+              <div className="mt-2 border-t border-white/10 pt-2 text-left">
+                <p className="text-[11px] font-medium text-white/90 leading-snug">
+                  "My name is {declaration.declarantFullName}, and my code is {declaration.runtimeCode}."
+                </p>
+              </div>
             </div>
           </div>
         ) : null}
@@ -1976,37 +2055,26 @@ function VideoPreviewStep({
           className="aspect-video w-full rounded-xl border border-slate-200 bg-black object-cover"
         />
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-          <p className="text-sm font-semibold text-navy">
-            Quality report
-          </p>
-
-          <div className="mt-4 grid gap-3">
-            <MiniStat label="Duration" value={`${durationSeconds}s`} />
-            <MiniStat
-              label="Face visible"
-              value={`${Math.round((qualitySnapshot?.faceVisibleRatio || 0) * 100)}%`}
-            />
-            <MiniStat
-              label="Single face"
-              value={`${Math.round((qualitySnapshot?.singleFaceRatio || 0) * 100)}%`}
-            />
-            <MiniStat
-              label="Centered"
-              value={`${Math.round((qualitySnapshot?.centeredRatio || 0) * 100)}%`}
-            />
-          </div>
-
-          <div className="mt-5">
-            <StatusPill
-              status={qualitySnapshot?.faceCheckPassed ? "active" : "expired"}
-              label={
-                qualitySnapshot?.faceCheckPassed
-                  ? "Quality passed"
-                  : "Retake recommended"
-              }
-            />
-          </div>
+        <div className="flex flex-col justify-center rounded-xl border border-slate-200 bg-slate-50 p-6 text-center">
+          {qualitySnapshot?.faceCheckPassed ? (
+            <>
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                <CheckCircle2 size={32} />
+              </div>
+              <p className="mt-4 text-lg font-bold text-navy">Quality Passed</p>
+              <p className="mt-2 text-sm text-slate-500">Your video looks good. You can submit it now.</p>
+            </>
+          ) : (
+            <>
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600">
+                <UserRound size={32} />
+              </div>
+              <p className="mt-4 text-lg font-bold text-navy">Face Not Clear</p>
+              <p className="mt-2 text-sm text-slate-500">
+                We couldn't see your face clearly. Please try again and keep your face inside the circle.
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -2176,7 +2244,7 @@ function analyzeFaceFrame({ detections, video, canvas, prevBoxRef }) {
 
   const base = {
     faceCount,
-    hasOneFace: faceCount === 1,
+    hasOneFace: faceCount >= 1,
     centered: false,
     goodSize: false,
     lightingOk: false,
@@ -2184,11 +2252,30 @@ function analyzeFaceFrame({ detections, video, canvas, prevBoxRef }) {
     isGood: false
   };
 
-  if (faceCount !== 1) {
+  if (faceCount === 0) {
     return base;
   }
 
-  const box = detections[0].boundingBox;
+  let largestDetection = detections[0];
+  let maxArea = largestDetection.boundingBox.width * largestDetection.boundingBox.height;
+
+  for (let i = 1; i < detections.length; i++) {
+    const d = detections[i];
+    const b = d.boundingBox;
+    const area = b.width * b.height;
+    if (area > maxArea) {
+      maxArea = area;
+      largestDetection = d;
+    }
+  }
+
+  const score = largestDetection.categories?.[0]?.score ?? 1;
+
+  if (score < 0.85) {
+    return { ...base, faceCount: 0 };
+  }
+
+  const box = largestDetection.boundingBox;
 
   const videoWidth = video.videoWidth || 640;
   const videoHeight = video.videoHeight || 480;
@@ -2265,7 +2352,6 @@ function calculateBrightness(video, canvas) {
 
 function getFaceMessage(face) {
   if (face.faceCount === 0) return "No face detected. Please face the camera.";
-  if (face.faceCount > 1) return "Multiple faces detected. Only one person should be visible.";
   if (!face.centered) return "Move your face to the center of the frame.";
   if (!face.goodSize) return "Move slightly closer or farther from the camera.";
   if (!face.lightingOk) return "Improve lighting. Avoid too much darkness or glare.";
@@ -2274,14 +2360,30 @@ function getFaceMessage(face) {
   return "Face readiness check passed. You can start recording.";
 }
 
-function LiveCameraFrame({ videoRef, canvasRef, declaration, showScript }) {
+function LiveCameraFrame({ videoRef, canvasRef, declaration, showScript, faceState, recordingError, onRecordAgain }) {
   // 3:4 (portrait) on mobile so the user can see their face below the script.
   // 16:9 (landscape) on sm+ screens so script + code sit beside the face.
   // On mobile, the script is rendered OUTSIDE the frame (in <ScriptPrompt />)
   // so the full text is readable. On sm+, a small overlay still floats on top.
+  const borderColor = faceState?.ready ? "border-emerald-500" : "border-red-500";
+
   return (
-    <div className="mx-auto mt-6 w-full max-w-3xl overflow-hidden rounded-xl border border-slate-200 bg-gray-950 shadow-xl shadow-gray-200/60">
+    <div className={`mx-auto mt-6 w-full max-w-3xl overflow-hidden rounded-xl border-4 bg-gray-950 shadow-xl shadow-gray-200/60 transition-colors duration-300 ${borderColor}`}>
       <div className="relative aspect-[3/4] min-h-[420px] sm:aspect-video sm:min-h-0">
+        {recordingError && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-6 text-center backdrop-blur-sm">
+            <UserRound size={48} className="text-red-500 mb-4" />
+            <p className="text-xl font-bold text-white">Face Not Visible</p>
+            <p className="mt-2 text-sm text-white/80 max-w-sm mx-auto">{recordingError}</p>
+            <button
+              onClick={onRecordAgain}
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-red-600 px-6 py-3 text-white font-bold transition hover:bg-red-700 active:scale-95 shadow-lg shadow-red-500/30"
+            >
+              <Video size={18} />
+              Record Again
+            </button>
+          </div>
+        )}
         {showScript && declaration && (
           <>
             {/* Teleprompter overlay only on sm+; mobile uses ScriptPrompt above */}
@@ -2305,62 +2407,78 @@ function LiveCameraFrame({ videoRef, canvasRef, declaration, showScript }) {
   );
 }
 
+function speakText(text) {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
 /**
  * Mobile-first script prompt — full text visible, big code badge.
  * Renders above the camera frame on mobile, beside it on sm+.
  */
 function ScriptPrompt({ declaration }) {
   if (!declaration) return null;
+  const promptText = `My name is ${declaration.declarantFullName}, and my code is ${declaration.runtimeCode}.`;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5 sm:px-5 sm:py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:text-[11px]">
-            Read clearly on camera
-          </p>
-        </div>
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-6 text-center">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+        Your Verification Code
+      </p>
+      <p className="mt-2 text-5xl font-black tracking-[0.2em] text-navy">
+        {declaration.runtimeCode}
+      </p>
 
-        <div className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-center sm:px-4 sm:py-2">
-          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:text-[10px]">
-            Code
-          </p>
-          <p className="mt-0.5 text-base font-black tracking-[0.16em] text-navy sm:text-lg">
-            {declaration.runtimeCode}
-          </p>
-        </div>
-      </div>
-
-      <div className="max-h-40 overflow-y-auto px-4 py-3 sm:max-h-48 sm:px-5 sm:py-4">
-        <p className="text-sm leading-6 text-slate-700 sm:text-base sm:leading-7">
-          {declaration.scriptText}
+      <div className="mt-6 flex flex-col items-center justify-center gap-4 border-t border-slate-100 pt-5 sm:flex-row">
+        <p className="text-lg font-medium text-slate-700 leading-relaxed">
+          "{promptText}"
         </p>
+        <button
+          type="button"
+          onClick={() => speakText(promptText)}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition hover:bg-blue-100 active:scale-95"
+          aria-label="Listen to script"
+        >
+          <Volume2 size={22} />
+        </button>
       </div>
     </div>
   );
 }
 
 function CompactScriptOverlay({ declaration }) {
-  return (
-    <div className="absolute left-3 right-3 top-3 z-10 rounded-xl border border-white/20 bg-black/70 p-2.5 text-white shadow-2xl backdrop-blur-md sm:left-4 sm:right-4 sm:top-4 sm:rounded-2xl sm:p-3">
-      <div className="flex items-center gap-2 sm:gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="hidden text-[10px] font-bold uppercase tracking-[0.2em] text-white/60 sm:block">
-            Read clearly
-          </p>
-          <p className="line-clamp-3 text-[11px] leading-snug text-white/90 sm:text-sm sm:leading-6">
-            {declaration.scriptText}
-          </p>
-        </div>
+  if (!declaration) return null;
+  const promptText = `My name is ${declaration.declarantFullName}, and my code is ${declaration.runtimeCode}.`;
 
-        <div className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-center text-navy sm:rounded-xl sm:px-4 sm:py-2">
-          <p className="text-[8px] font-bold uppercase tracking-[0.18em] text-slate-400 sm:text-[9px]">
-            Code
-          </p>
-          <p className="mt-0.5 text-sm font-black tracking-[0.16em] sm:mt-1 sm:text-xl">
-            {declaration.runtimeCode}
-          </p>
-        </div>
+  return (
+    <div className="absolute left-3 right-3 top-3 z-20 flex flex-col sm:flex-row items-center justify-start gap-4 sm:gap-6 rounded-xl border border-white/20 bg-black/80 px-4 py-3 text-white shadow-2xl backdrop-blur-md sm:left-4 sm:right-4 sm:top-4">
+      <div className="shrink-0 text-center sm:text-left">
+        <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/60">
+          Verification Code
+        </p>
+        <p className="mt-0.5 text-2xl font-black tracking-widest sm:text-3xl">
+          {declaration.runtimeCode}
+        </p>
+      </div>
+
+      {/* Vertical divider on desktop */}
+      <div className="hidden h-10 w-px bg-white/10 sm:block" />
+
+      <div className="mt-2 flex flex-1 items-center gap-3 border-t border-white/10 pt-2 w-full sm:w-auto sm:mt-0 sm:border-none sm:pt-0">
+        <p className="flex-1 text-center text-sm font-medium leading-snug text-white/90 sm:text-left">
+          "{promptText}"
+        </p>
+        <button
+          type="button"
+          onClick={() => speakText(promptText)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 active:scale-95"
+          aria-label="Listen to script"
+        >
+          <Volume2 size={14} />
+        </button>
       </div>
     </div>
   );

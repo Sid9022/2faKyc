@@ -9,6 +9,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import SectionCard from "./ui/SectionCard";
+import useAudioGuide from "../hooks/useAudioGuide";
 
 const content = {
   en: {
@@ -108,6 +109,8 @@ export default function ConsentScreen({
   error,
   isCompleted
 }) {
+  useAudioGuide("3");
+
   const t = content[language] || content.en;
   const [agreed, setAgreed] = useState(false);
 

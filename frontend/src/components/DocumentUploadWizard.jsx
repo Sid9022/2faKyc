@@ -23,6 +23,7 @@ import {
   saveKycDocumentProgress
 } from "../api/kycApi";
 import StatusPill from "./StatusPill";
+import useAudioGuide from "../hooks/useAudioGuide";
 
 const content = {
   en: {
@@ -124,8 +125,12 @@ function hasNewSelectedFiles(selectedFiles = {}) {
   return Object.values(selectedFiles).some(Boolean);
 }
 
-function getSaveButtonLabel({ activeStep, selectedFiles, t }) {
+function getSaveButtonLabel({ activeStep, selectedFiles, t, isResubmissionMode, isLastStep }) {
   const hasNewFiles = hasNewSelectedFiles(selectedFiles);
+
+  if (isResubmissionMode && isLastStep) {
+    return hasNewFiles ? "Submit correction" : "Next";
+  }
 
   if (isStepSaved(activeStep) && !hasNewFiles) {
     return "Next";
@@ -146,6 +151,8 @@ export default function DocumentUploadWizard({
   onResubmissionDone,
   onStatusChanged
 }) {
+  useAudioGuide("4");
+
   const t = content[language] || content.en;
 
   const [workspace, setWorkspace] = useState(null);
@@ -308,6 +315,22 @@ export default function DocumentUploadWizard({
       if (!result.success) {
         setError(result.message || "Unable to save document.");
         return;
+      }
+
+      // Automatically final submit if in resubmission mode and we're on the last step
+      if (isResubmissionMode && activeIndex === steps.length - 1) {
+        setSuccess(`${activeStep.documentName} saved. Submitting corrections...`);
+        const finalResult = await finalSubmitKycDocuments(token);
+        if (finalResult.success) {
+          notifyStatusChanged();
+          if (typeof onResubmissionDone === "function") {
+            onResubmissionDone();
+          }
+          return;
+        } else {
+          setError(finalResult.message || "Unable to submit corrections.");
+          return;
+        }
       }
 
       setWorkspace(result);
@@ -901,7 +924,13 @@ export default function DocumentUploadWizard({
                         </>
                       ) : (
                         <>
-                          {getSaveButtonLabel({ activeStep, selectedFiles, t })}
+                          {getSaveButtonLabel({
+                            activeStep,
+                            selectedFiles,
+                            t,
+                            isResubmissionMode,
+                            isLastStep: activeIndex === steps.length - 1
+                          })}
                           <ArrowRight size={16} />
                         </>
                       )}
@@ -925,7 +954,13 @@ export default function DocumentUploadWizard({
                     </>
                   ) : (
                     <>
-                      {getSaveButtonLabel({ activeStep, selectedFiles, t })}
+                      {getSaveButtonLabel({
+                        activeStep,
+                        selectedFiles,
+                        t,
+                        isResubmissionMode,
+                        isLastStep: activeIndex === steps.length - 1
+                      })}
                       <ArrowRight size={17} />
                     </>
                   )}

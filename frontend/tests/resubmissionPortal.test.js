@@ -12,7 +12,7 @@ import {
   shouldShowDocumentsToCorrectTile,
   wentThroughResubmission,
   approvedCopy
-} from "../src/components/resubmissionPortal.js";
+} from "../src/components/resubmissionHelpers.js";
 
 // --- A7: the "Documents to correct" tile must NOT render when count is 0.
 test("shouldShowDocumentsToCorrectTile hides the tile when count is 0 (A7)", () => {

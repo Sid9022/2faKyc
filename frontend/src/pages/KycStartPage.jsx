@@ -20,6 +20,7 @@ import DocumentUploadWizard from "../components/DocumentUploadWizard";
 import VideoDeclarationScreen from "../components/VideoDeclarationScreen";
 import ResubmissionPortal from "../components/ResubmissionPortal";
 import { formatStatusLabel } from "../components/statusStyles";
+import useAudioGuide from "../hooks/useAudioGuide";
 
 const copy = {
   en: {
@@ -366,6 +367,8 @@ export default function KycStartPage() {
 }
 
 function DetailsScreen({ t, kyc, link, requiredDocsCount, onNext }) {
+  useAudioGuide("1");
+
   return (
     <SectionCard
       title={`${t.detailsTitle}, ${kyc?.buyerName || ""}`.trim()}
@@ -398,6 +401,8 @@ function DetailsScreen({ t, kyc, link, requiredDocsCount, onNext }) {
 }
 
 function RequirementsScreen({ t, checklist, onBack, onNext }) {
+  useAudioGuide("2");
+
   return (
     <SectionCard
       title={t.requirementsTitle}
@@ -429,6 +434,8 @@ function RequirementsScreen({ t, checklist, onBack, onNext }) {
 }
 
 function DoneCard({ t, kyc }) {
+  useAudioGuide("8");
+
   return (
     <SectionCard
       title={t.doneTitle}

@@ -16,10 +16,10 @@ import {
 import { API_BASE_URL, getKycResubmissionWorkspace } from "../api/kycApi";
 import StatusPill from "./StatusPill";
 import {
-  shouldShowDocumentsToCorrectTile,
   wentThroughResubmission,
   approvedCopy
-} from "./resubmissionPortal.js";
+} from "./resubmissionHelpers.js";
+import useAudioGuide from "../hooks/useAudioGuide";
 
 export default function ResubmissionPortal({
   token,
@@ -80,6 +80,15 @@ export default function ResubmissionPortal({
   // so the terminal-state copy can call out the resubmission. Bug A22.
   const wentThroughResubmissionFlag = wentThroughResubmission(workspace);
 
+  const isApproved = workspace?.kyc?.overallStatus === "approved";
+  const isRejected = workspace?.kyc?.overallStatus === "rejected";
+  const isWaitingForReview = workspace?.nextAction === "waiting_for_review";
+  const needsDocuments = workspace?.nextAction === "resubmit_documents";
+  const needsVideo = workspace?.nextAction === "resubmit_video";
+  
+  const needsCorrection = workspace && !isApproved && !isRejected && !isWaitingForReview && (needsDocuments || needsVideo);
+  useAudioGuide(needsCorrection ? "7" : null);
+
   if (isLoading) {
     return (
       <section className="rounded-2xl border border-white/80 bg-white/90 p-8 shadow-xl shadow-gray-200/70">
@@ -117,12 +126,6 @@ export default function ResubmissionPortal({
       </section>
     );
   }
-
-  const isApproved = workspace?.kyc?.overallStatus === "approved";
-  const isRejected = workspace?.kyc?.overallStatus === "rejected";
-  const isWaitingForReview = workspace?.nextAction === "waiting_for_review";
-  const needsDocuments = workspace?.nextAction === "resubmit_documents";
-  const needsVideo = workspace?.nextAction === "resubmit_video";
 
   if (isApproved) {
     const copy = approvedCopy(wentThroughResubmissionFlag);
