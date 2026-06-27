@@ -60,7 +60,7 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().default("30m"),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(7),
 
-  KYC_LINK_EXPIRY_DAYS: z.coerce.number().default(7),
+  KYC_LINK_EXPIRY_DAYS: z.coerce.number().default(30),
   KYC_BUYER_BASE_URL: z.string().default("http://localhost:5173"),
   KYC_API_BASE_URL: z.string().default("http://localhost:5000"),
 

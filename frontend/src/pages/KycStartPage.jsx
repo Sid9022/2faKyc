@@ -354,7 +354,7 @@ export default function KycStartPage() {
 
   return (
     <BuyerLayout
-      step={progressKeyFor(step)}
+      step={progressKeyFor(step, kyc)}
       steps={STEP_ORDER}
       buyerName={kyc?.buyerName}
       entityLabel={kyc?.entityLabel}

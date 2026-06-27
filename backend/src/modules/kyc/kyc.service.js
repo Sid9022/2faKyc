@@ -459,7 +459,11 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
   // "resend link" endpoint by design (it would need an email-matching
   // gate + rate limit + audit log to be safe).
   const internal = result._internal;
-  delete result._internal;
+  if (!options.exposeUrl) {
+    delete result._internal;
+  } else {
+    result.kycLink.buyerKycUrl = internal.buyerKycUrl;
+  }
 
   const template = kycLinkEmail({
     buyerName: internal.buyerName,

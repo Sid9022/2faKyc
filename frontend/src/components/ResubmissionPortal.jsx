@@ -16,6 +16,7 @@ import {
 import { API_BASE_URL, getKycResubmissionWorkspace } from "../api/kycApi";
 import StatusPill from "./StatusPill";
 import {
+  shouldShowDocumentsToCorrectTile,
   wentThroughResubmission,
   approvedCopy
 } from "./resubmissionHelpers.js";
@@ -188,7 +189,7 @@ export default function ResubmissionPortal({
         />
       </div>
 
-      <div className="mt-7 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="mt-7 grid gap-8 lg:grid-cols-[1.05fr_0.95fr] min-w-0 w-full">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-navy sm:text-3xl">
             Your KYC needs a small correction.
@@ -243,15 +244,15 @@ export default function ResubmissionPortal({
         </div>
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <section className="space-y-5">
+      <div className="mt-8 grid gap-6 lg:grid-cols-[0.95fr_1.05fr] min-w-0 w-full">
+        <section className="space-y-5 min-w-0 w-full">
           <LockedItemsCard
             acceptedDocuments={workspace?.acceptedDocuments || []}
             video={workspace?.video}
           />
         </section>
 
-        <section className="space-y-5">
+        <section className="space-y-5 min-w-0 w-full">
           {workspace?.documentsNeedingResubmission?.length > 0 && (
             <CorrectionDocumentsCard
               documents={workspace.documentsNeedingResubmission}
@@ -484,10 +485,12 @@ function CorrectionDocumentItem({ doc }) {
               href={`${API_BASE_URL}${file.fileUrl}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 min-w-0 w-full"
             >
-              <span className="truncate">{file.originalName}</span>
-              <ExternalLink size={15} />
+              <span className="truncate min-w-0 flex-1" title={file.originalName}>
+                {file.originalName}
+              </span>
+              <ExternalLink size={15} className="shrink-0" />
             </a>
           ))}
         </div>

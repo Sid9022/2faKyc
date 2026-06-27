@@ -140,6 +140,25 @@ test("progressKeyFor maps every internal step to a milestone", () => {
   }
 });
 
+test("progressKeyFor maps resubmission steps to done when corrections are submitted", () => {
+  assert.equal(
+    progressKeyFor("resubmission", { currentStage: "resubmission_submitted" }),
+    "done"
+  );
+  assert.equal(
+    progressKeyFor("resubmission_video", { currentStage: "resubmission_submitted" }),
+    "done"
+  );
+  assert.equal(
+    progressKeyFor("resubmission", { currentStage: "resubmission_required" }),
+    "documents"
+  );
+  assert.equal(
+    progressKeyFor("resubmission_video", { currentStage: "resubmission_video_pending" }),
+    "video"
+  );
+});
+
 // --- A20: sub-flows must be able to trigger a parent-side refresh.
 // This test exercises the contract that `deriveStep` is pure — given a
 // fresh `kyc` snapshot (e.g. one that the parent gets back from a

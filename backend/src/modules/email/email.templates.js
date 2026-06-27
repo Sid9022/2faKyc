@@ -172,7 +172,7 @@ function kycLinkEmail({ buyerName, kycUrl, expiresAt }) {
   const expiry = new Date(expiresAt).toDateString();
 
   return {
-    subject: "Complete your 2Factor KYC verification",
+    subject: "Action Needed: Complete your 2Factor KYC verification",
     body: layout({
       preheader: "Complete your KYC to activate your 2Factor service.",
       heading: "Complete your KYC verification",

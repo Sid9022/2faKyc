@@ -174,12 +174,12 @@ export default function VideoDeclarationScreen({
 }) {
   const t = content[language] || content.en;
 
-  const [screenRaw, setScreenRaw] = useState("permissions");
+  const [screen, setScreenRaw] = useState("permissions");
 
   useAudioGuide(
-    screenRaw === "permissions" || screenRaw === "camera"
+    screen === "permissions" || screen === "camera"
       ? "5"
-      : screenRaw === "record"
+      : screen === "record"
       ? "6"
       : null
   );
@@ -242,14 +242,13 @@ export default function VideoDeclarationScreen({
 
   const [workspace, setWorkspace] = useState(null);
   const [declaration, setDeclarationRaw] = useState(loadPersisted("declaration"));
-  // screenRaw is already defined above
+  // screen is already defined above
   useEffect(() => {
     const savedScreen = loadPersisted("screen");
     if (savedScreen) {
       setScreenRaw(savedScreen);
     }
   }, []);
-  const screen = screenRaw;
   const [recordingError, setRecordingError] = useState("");
 
   // Bug A13: persist screen and declaration to sessionStorage so a

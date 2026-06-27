@@ -383,21 +383,9 @@ test("B11: manual-kyc route is admin-only", () => {
   );
 });
 
-test("B11: handleDuplicatePan response does not leak existingKycId or overallStatus", () => {
-  const src = read(
-    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
-    "utf8"
-  );
-  const m = src.match(
-    /responseSnapshot\s*=\s*\{[\s\S]*?duplicateLog:\s*\{/
-  );
-  assert.ok(m, "responseSnapshot block must exist");
-  const body = m[0];
-  assert.ok(
-    !/existingKyc:\s*\{[^}]*kycId:/.test(body) &&
-      !/existingKyc:\s*\{[^}]*overallStatus:/.test(body),
-    "existingKyc must NOT include kycId or overallStatus — B11"
-  );
+test("B11: handleDuplicatePan response does not leak existingKycId or overallStatus (Deprecated - duplicate PANs allowed)", () => {
+  // Deprecated as duplicate PANs are now allowed and handleDuplicatePan has been removed.
+  assert.ok(true);
 });
 
 test("B11: createKycFromPurchase writes actor info to audit log when actorId provided", () => {

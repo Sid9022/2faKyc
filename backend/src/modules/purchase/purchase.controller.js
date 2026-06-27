@@ -21,7 +21,7 @@ async function createDummyPurchase(req, res) {
       });
     }
 
-    const result = await createKycFromPurchase(parsed.data, getRequestMeta(req));
+    const result = await createKycFromPurchase(parsed.data, getRequestMeta(req), { exposeUrl: true });
 
     return res.status(result.statusCode || 200).json(result);
   } catch (error) {

@@ -740,7 +740,7 @@ export default function DocumentUploadWizard({
         })}
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+      <div className="mt-8 grid gap-6 lg:grid-cols-[0.75fr_1.25fr] min-w-0 w-full">
         <aside className="hidden rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:block">
           <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Document steps
@@ -782,7 +782,7 @@ export default function DocumentUploadWizard({
           </div>
         </aside>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 min-w-0 w-full">
           {activeStep && (
             <>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1087,12 +1087,12 @@ function FileInputCard({
             </p>
 
             {currentFile && (
-              <div className="mt-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 w-full">
+              <div className="mt-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 w-full min-w-0">
                 <p className="text-xs font-semibold text-slate-500">
                   Current saved file
                 </p>
 
-                <div className="mt-1 flex flex-wrap items-center gap-3">
+                <div className="mt-1 flex items-center gap-3 w-full min-w-0">
                   <a
                     href={`${API_BASE_URL}${currentFile.fileUrl}`}
                     target="_blank"
@@ -1137,7 +1137,6 @@ function FileInputCard({
           <input
             type="file"
             accept={slot.accept}
-            capture={slot.capture}
             onChange={(event) => onChange(event.target.files?.[0] || null)}
             className="hidden"
           />

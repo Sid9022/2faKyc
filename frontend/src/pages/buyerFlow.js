@@ -96,13 +96,21 @@ function deriveStep(kyc) {
  * Map an internal step name to the BuyerLayout milestone key that
  * drives the progress bar. Keeps the % clean: 20/40/60/80/100.
  */
-function progressKeyFor(step) {
+function progressKeyFor(step, kyc) {
   if (step === "details" || step === "requirements") return "details";
   if (step === "consent" || step === "consent_done") return "consent";
   if (step === "resubmission" || step === "resubmission_documents") {
+    if (kyc?.currentStage === "resubmission_submitted") {
+      return "done";
+    }
     return "documents";
   }
-  if (step === "resubmission_video") return "video";
+  if (step === "resubmission_video") {
+    if (kyc?.currentStage === "resubmission_submitted") {
+      return "done";
+    }
+    return "video";
+  }
   if (
     step === "documents" ||
     step === "video" ||

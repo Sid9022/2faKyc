@@ -12,7 +12,7 @@ function hashKycToken(token) {
 }
 
 function getKycLinkExpiryDate() {
-  const days = Number(process.env.KYC_LINK_EXPIRY_DAYS || 7);
+  const days = Number(process.env.KYC_LINK_EXPIRY_DAYS || 30);
 
   const expiry = new Date();
   expiry.setDate(expiry.getDate() + days);
