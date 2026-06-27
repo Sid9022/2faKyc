@@ -285,6 +285,12 @@ export default function VideoDeclarationScreen({
 
   const [permStatus, setPermStatus] = useState(initialPermissionState);
   const [permRequesting, setPermRequesting] = useState(null);
+  const permRequestingRef = useRef(null);
+  const setPermRequestingState = (val) => {
+    permRequestingRef.current = val;
+    setPermRequesting(val);
+  };
+  const [publicIp, setPublicIp] = useState(null);
   const [permError, setPermError] = useState("");
   const [gateCoords, setGateCoords] = useState(locationCoords || null);
   const [gatePassed, setGatePassed] = useState(false);
@@ -493,9 +499,9 @@ export default function VideoDeclarationScreen({
   }
 
   async function requestPermission(kind) {
-    if (permRequesting) return;
+    if (permRequestingRef.current) return;
 
-    setPermRequesting(kind);
+    setPermRequestingState(kind);
     setPermError("");
 
     try {
@@ -574,6 +580,7 @@ export default function VideoDeclarationScreen({
         next.location === PERM_STATUS.GRANTED
       ) {
         setGatePassed(true);
+        setScreen("details");
       }
     } catch (err) {
       // The browser refuses to re-prompt after an explicit deny, so we have
@@ -598,7 +605,7 @@ export default function VideoDeclarationScreen({
         );
       }
     } finally {
-      setPermRequesting(null);
+      setPermRequestingState(null);
     }
   }
 
@@ -765,6 +772,97 @@ export default function VideoDeclarationScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-request permissions sequentially when on the permissions gate screen.
+  useEffect(() => {
+    if (screen !== "permissions") return;
+
+    let active = true;
+
+    async function runAutoRequest() {
+      // Small delay on mount to avoid overlapping with initial render setup
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      if (!active) return;
+
+      const current = await checkAllPermissions();
+      if (!active) return;
+
+      // 1. Geolocation
+      if (
+        current.location !== PERM_STATUS.GRANTED &&
+        current.location !== PERM_STATUS.DENIED &&
+        current.location !== PERM_STATUS.UNSUPPORTED
+      ) {
+        try {
+          await requestPermission("location");
+        } catch (e) {
+          console.warn("Auto request location failed:", e);
+        }
+      }
+      if (!active) return;
+
+      // Re-query status
+      let updated = await checkAllPermissions();
+      if (!active) return;
+
+      // 2. Camera
+      if (
+        updated.camera !== PERM_STATUS.GRANTED &&
+        updated.camera !== PERM_STATUS.DENIED &&
+        updated.camera !== PERM_STATUS.UNSUPPORTED
+      ) {
+        try {
+          await requestPermission("camera");
+        } catch (e) {
+          console.warn("Auto request camera failed:", e);
+        }
+      }
+      if (!active) return;
+
+      // Re-query status
+      updated = await checkAllPermissions();
+      if (!active) return;
+
+      // 3. Microphone
+      if (
+        updated.microphone !== PERM_STATUS.GRANTED &&
+        updated.microphone !== PERM_STATUS.DENIED &&
+        updated.microphone !== PERM_STATUS.UNSUPPORTED
+      ) {
+        try {
+          await requestPermission("microphone");
+        } catch (e) {
+          console.warn("Auto request microphone failed:", e);
+        }
+      }
+    }
+
+    runAutoRequest();
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+
+  // Autofetch client public IP on mount
+  useEffect(() => {
+    let active = true;
+    async function initPublicIp() {
+      try {
+        const ip = await fetchPublicIp();
+        if (ip && active) {
+          setPublicIp(ip);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch public IP:", err);
+      }
+    }
+    initPublicIp();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     // Bug A12: only force "done" when the buyer is NOT actively
     // recording. A poll / admin action / concurrent tab can flip
@@ -801,7 +899,8 @@ export default function VideoDeclarationScreen({
         ...form,
         language,
         latitude: gateCoords?.latitude ?? locationCoords?.latitude,
-        longitude: gateCoords?.longitude ?? locationCoords?.longitude
+        longitude: gateCoords?.longitude ?? locationCoords?.longitude,
+        publicIp
       });
 
       if (!result.success) {
@@ -1114,6 +1213,9 @@ export default function VideoDeclarationScreen({
       }
       if (effectiveCoords?.longitude) {
         formData.append("longitude", String(effectiveCoords.longitude));
+      }
+      if (publicIp) {
+        formData.append("publicIp", publicIp);
       }
 
       const result = await uploadKycVideoDeclaration(token, formData);
@@ -2412,6 +2514,30 @@ function speakText(text) {
     const utterance = new SpeechSynthesisUtterance(text);
     window.speechSynthesis.speak(utterance);
   }
+}
+
+async function fetchPublicIp() {
+  const providers = [
+    "https://api.ipify.org?format=json",
+    "https://ipapi.co/json/",
+    "https://ipinfo.io/json"
+  ];
+  for (const url of providers) {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(id);
+      if (res.ok) {
+        const data = await res.json();
+        const ip = data.ip || data.ip_address;
+        if (ip) return ip;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch public IP from", url, e.message);
+    }
+  }
+  return null;
 }
 
 /**
