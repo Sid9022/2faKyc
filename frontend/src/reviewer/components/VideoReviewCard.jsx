@@ -132,6 +132,22 @@ export default function VideoReviewCard({ videoDeclaration, caseStatus, onReview
         </div>
       </div>
 
+      <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck size={18} className="text-slate-500" />
+          <p className="text-sm font-semibold text-navy">
+            Capture metadata
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <QualityStat label="IP Address" value={videoDeclaration.ipAddress || currentAttempt?.ipAddress || "—"} />
+          <QualityStat label="Latitude" value={videoDeclaration.latitude ?? currentAttempt?.latitude ?? "—"} />
+          <QualityStat label="Longitude" value={videoDeclaration.longitude ?? currentAttempt?.longitude ?? "—"} />
+          <QualityStat label="Timestamp" value={videoDeclaration.submittedAt ? new Date(videoDeclaration.submittedAt).toLocaleString("en-IN") : "—"} />
+        </div>
+      </div>
+
       {videoDeclaration.reviewerRemarks && (
         <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">

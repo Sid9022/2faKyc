@@ -502,7 +502,10 @@ async function uploadVideoDeclarationInner(rawToken, body, file, requestMeta) {
           faceQualityMetadata,
           reviewedBy: null,
           reviewedAt: null,
-          submittedAt: new Date()
+          submittedAt: new Date(),
+          ipAddress: requestMeta.ipAddress || null,
+          latitude: latitude || null,
+          longitude: longitude || null
         }
       });
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon src/server.js",
+    "dev": "node scripts/generate-dev-cert.js && nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node --test tests/units.test.js",
     "test:e2e": "node scripts/e2e-smoke.js",

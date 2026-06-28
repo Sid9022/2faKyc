@@ -9,7 +9,19 @@
  *   $env:PAN_VALIDATION_ENABLED="false"; npm run dev
  */
 
-const BASE = process.env.API_URL || "http://localhost:5000";
+const fs = require("fs");
+const path = require("path");
+
+const certDir = path.resolve(__dirname, "..", ".dev-certs");
+const keyFile = path.resolve(certDir, "key.pem");
+const certFile = path.resolve(certDir, "cert.pem");
+const hasDevCert = fs.existsSync(keyFile) && fs.existsSync(certFile);
+
+const BASE = process.env.API_URL || (hasDevCert ? "https://localhost:5000" : "http://localhost:5000");
+
+if (hasDevCert) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
 
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@2factor.local";
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "Admin@12345";

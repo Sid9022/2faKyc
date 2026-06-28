@@ -136,10 +136,31 @@ app.use((req, res) => {
   });
 });
 
-const server = app.listen(env.PORT, () => {
-  console.log(`KYC backend running on port ${env.PORT} (${env.NODE_ENV})`);
-  startReminderScheduler();
-});
+const https = require("https");
+const fs = require("fs");
+const path = require("path");
+
+const certDir = path.resolve(__dirname, "..", ".dev-certs");
+const keyFile = path.resolve(certDir, "key.pem");
+const certFile = path.resolve(certDir, "cert.pem");
+const hasDevCert = fs.existsSync(keyFile) && fs.existsSync(certFile);
+
+let server;
+if (hasDevCert && env.NODE_ENV === "development") {
+  const options = {
+    key: fs.readFileSync(keyFile),
+    cert: fs.readFileSync(certFile)
+  };
+  server = https.createServer(options, app).listen(env.PORT, () => {
+    console.log(`KYC backend running on HTTPS port ${env.PORT} (${env.NODE_ENV})`);
+    startReminderScheduler();
+  });
+} else {
+  server = app.listen(env.PORT, () => {
+    console.log(`KYC backend running on HTTP port ${env.PORT} (${env.NODE_ENV})`);
+    startReminderScheduler();
+  });
+}
 
 async function shutdown(signal) {
   console.log(`${signal} received — shutting down gracefully.`);

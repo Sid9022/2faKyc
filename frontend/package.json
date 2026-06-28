@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:https": "bash scripts/generate-dev-cert.sh && vite",
-    "setup:https": "bash scripts/generate-dev-cert.sh",
+    "dev": "node scripts/generate-dev-cert.js && vite",
+    "dev:https": "node scripts/generate-dev-cert.js && vite",
+    "setup:https": "node scripts/generate-dev-cert.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

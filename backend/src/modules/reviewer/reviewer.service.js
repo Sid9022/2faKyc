@@ -289,6 +289,9 @@ async function getKycCaseDetail(kycId) {
           faceQualityMetadata: kyc.videoDeclaration.faceQualityMetadata,
           startedAt: kyc.videoDeclaration.startedAt,
           submittedAt: kyc.videoDeclaration.submittedAt,
+          ipAddress: kyc.videoDeclaration.ipAddress,
+          latitude: kyc.videoDeclaration.latitude,
+          longitude: kyc.videoDeclaration.longitude,
           attempts: kyc.videoDeclaration.attempts.map((attempt) => ({
             id: attempt.id,
             status: attempt.status,

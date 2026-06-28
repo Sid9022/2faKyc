@@ -11,7 +11,7 @@ import axios from "axios";
 function resolveApiBaseUrl() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL;
   if (typeof fromEnv === "string") return fromEnv;
-  if (import.meta.env.DEV) return "http://localhost:5000";
+  if (import.meta.env.DEV) return "https://localhost:5000";
   return "";
 }
 

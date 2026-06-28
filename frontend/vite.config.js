@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import react from "@vitejs/plugin-react";
@@ -34,14 +34,15 @@ export default defineConfig({
     strictPort: true,   // fail fast if 5173 is taken instead of jumping to 5174
     https: hasDevCert
       ? {
-          key: keyFile,
-          cert: certFile
+          key: readFileSync(keyFile),
+          cert: readFileSync(certFile)
         }
       : false,
     proxy: {
       "/api": {
-        target: "http://localhost:5000",
-        changeOrigin: true
+        target: hasDevCert ? "https://localhost:5000" : "http://localhost:5000",
+        changeOrigin: true,
+        secure: false
       }
     }
   }

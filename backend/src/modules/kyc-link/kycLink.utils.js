@@ -21,12 +21,12 @@ function getKycLinkExpiryDate() {
 }
 
 function buildBuyerKycUrl(rawToken) {
-  const baseUrl = process.env.KYC_BUYER_BASE_URL || "http://localhost:5173";
+  const baseUrl = process.env.KYC_BUYER_BASE_URL || "https://localhost:5173";
   return `${baseUrl}/kyc/start/${rawToken}`;
 }
 
 function buildDevApiKycUrl(rawToken) {
-  const baseUrl = process.env.KYC_API_BASE_URL || "http://localhost:5000";
+  const baseUrl = process.env.KYC_API_BASE_URL || "https://localhost:5000";
   return `${baseUrl}/api/public/kyc/${rawToken}`;
 }
 
