@@ -1,13 +1,17 @@
 const crypto = require("crypto");
+const env = require("../../config/env");
 
 function generateRawKycToken() {
   return crypto.randomBytes(48).toString("hex");
 }
 
 function hashKycToken(token) {
+  // Single source of truth: env.KYC_LINK_SECRET is boot-validated (the app
+  // refuses to start in production without it) and shares the same dev
+  // fallback as every other secret. Never reach for an ad-hoc literal here.
   return crypto
     .createHash("sha256")
-    .update(String(token) + "::" + (process.env.KYC_LINK_SECRET || "local-dev-kyc-link-secret"))
+    .update(String(token) + "::" + env.KYC_LINK_SECRET)
     .digest("hex");
 }
 

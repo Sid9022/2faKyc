@@ -7,6 +7,7 @@ const {
   reopenKycCase
 } = require("./reviewer.service");
 const { getRequestMeta } = require("../../utils/request.util");
+const { signMediaToken } = require("../../middleware/auth.middleware");
 const prisma = require("../../config/prisma");
 
 /**
@@ -47,6 +48,7 @@ async function listCases(req, res, next) {
     const cases = await listKycCases({
       status: req.query.status,
       pan: req.query.pan,
+      mobile: req.query.mobile,
       limit: req.query.limit
     });
 
@@ -58,7 +60,7 @@ async function listCases(req, res, next) {
 
 async function getCaseDetail(req, res, next) {
   try {
-    const result = await getKycCaseDetail(req.params.kycId);
+    const result = await getKycCaseDetail(req.params.kycId, signMediaToken(req.user));
     // Bug B3: every detail-page read is sensitive (full PAN, email,
     // mobile). Audit-log it so we can answer "who looked at which
     // case, when, from where" without relying on access logs.

@@ -64,6 +64,21 @@ function sha256(value, secret = "") {
     .digest("hex");
 }
 
+/**
+ * Deterministic buyer-mobile hash. Mirrors `hashPAN` but keyed by
+ * `MOBILE_HASH_SECRET` (falls back to `PAN_HASH_SECRET` in env.js).
+ * Stored on `KycMaster.mobileHash` so the reviewer / admin dashboards
+ * can do exact-match search of every KYC record tied to a phone number.
+ *
+ * Returns `null` when no mobile is supplied so the column stays NULL
+ * rather than carrying a meaningless hash of "".
+ */
+function hashMobile(mobile) {
+  const normalized = mobile == null ? "" : String(mobile).trim();
+  if (!normalized) return null;
+  return sha256(normalized, env.MOBILE_HASH_SECRET);
+}
+
 function sha256Buffer(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
@@ -95,6 +110,7 @@ module.exports = {
   decryptField,
   sha256,
   sha256Buffer,
+  hashMobile,
   maskEmail,
   maskMobile,
   timingSafeEqualHex

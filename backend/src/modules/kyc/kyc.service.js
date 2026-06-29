@@ -6,6 +6,8 @@ const { detectEntityFromPAN, maskPAN, hashPAN } = require("./pan.utils");
 const { createSecureKycLinkForKyc } = require("../kyc-link/kycLink.service");
 const {
   encryptField,
+  decryptField,
+  hashMobile,
   maskEmail,
   maskMobile,
   sha256
@@ -13,6 +15,25 @@ const {
 const { getSetting } = require("../../utils/settings.util");
 const { sendKycEmail } = require("../email/email.service");
 const { kycLinkEmail } = require("../email/email.templates");
+
+/**
+ * `overallStatus` values that mean the buyer has actually engaged with
+ * the KYC. Used by Rule 2 (duplicate-buyer check) to decide whether a
+ * fresh webhook for the same (PAN, buyerName, mobile) should re-send a
+ * link or be ignored. Excludes the "just received the link, never
+ * clicked" states (`created`, `link_sent`) and the link-level terminal
+ * states (`expired`, `cancelled`) — those should fall through and
+ * produce a fresh KYC.
+ */
+const KYC_DONE_STATUSES = new Set([
+  "opened",
+  "in_progress",
+  "submitted",
+  "under_review",
+  "resubmission_required",
+  "approved",
+  "rejected"
+]);
 
 function hashPayload(payload) {
   return crypto
@@ -189,6 +210,244 @@ async function handlePurchaseRetry(existingPurchaseEvent, normalizedPurchase, pa
 
 // handleDuplicatePan removed
 
+/**
+ * Rule 2 (duplicate-buyer check).
+ *
+ * Look up every KYC we already have for this `panHash` and see whether
+ * any of them was opened by the *same* buyer. Two outcomes:
+ *
+ *   Case 1 — same PAN + same buyerName + same mobile + KYC is in a
+ *     "done" state (anything past `link_sent`). The buyer already has
+ *     a live case; we acknowledge the webhook, write a PurchaseEvent,
+ *     and DO NOT create a new KYC / send a new link.
+ *
+ *   Case 3 — same PAN + same buyerName but a *different* mobile. Write
+ *     a new `KycMaster` row in `cancelled` state so the new mobile is
+ *     searchable (encrypted `buyerMobile` + `mobileHash`), write a
+ *     PurchaseEvent, and DO NOT issue a buyer link. This is the
+ *     "fraud-search trail" the operations team asked for: every
+ *     mobile ever tried against a given PAN+name becomes retrievable.
+ *
+ *   Otherwise (different buyerName, or no same-name KYC, or same-name
+ *   KYC is still in `created` / `link_sent` only) we fall through to
+ *   Rule 3 and create a fresh KYC.
+ */
+async function handleDuplicateBuyer(
+  existingKycsForPan,
+  normalizedPurchase,
+  pan,
+  panHash,
+  panMasked,
+  payloadHash,
+  entityResult,
+  requestMeta
+) {
+  const normalizedInputName = normalizedPurchase.buyerName.toLowerCase().trim();
+  const normalizedInputMobile = normalizedPurchase.buyerMobile || null;
+
+  const sameNameMatch = existingKycsForPan.find(
+    (k) => k.buyerName.toLowerCase().trim() === normalizedInputName
+  );
+
+  if (!sameNameMatch) {
+    return null; // different buyerName — fall through to Rule 3
+  }
+
+  const storedMobile = decryptField(sameNameMatch.buyerMobile) || null;
+  const mobileMatches =
+    (normalizedInputMobile || null) === (storedMobile || null);
+
+  if (mobileMatches && KYC_DONE_STATUSES.has(sameNameMatch.overallStatus)) {
+    // Case 1: same buyer, same mobile, already progressed past
+    // `link_sent`. Bypass and log the duplicate purchase.
+    return handleDuplicateBuyerBypass(
+      sameNameMatch,
+      normalizedPurchase,
+      panHash,
+      panMasked,
+      payloadHash,
+      requestMeta
+    );
+  }
+
+  if (!mobileMatches) {
+    // Case 3: same PAN + same buyerName with a DIFFERENT mobile. Write
+    // an audit-only KycMaster so the new mobile is searchable later.
+    return handleDuplicateBuyerDifferentMobile(
+      sameNameMatch,
+      normalizedPurchase,
+      pan,
+      panHash,
+      panMasked,
+      payloadHash,
+      entityResult,
+      requestMeta
+    );
+  }
+
+  // Same mobile but the previous KYC never progressed past `link_sent`
+  // (still in `created` / `link_sent`). The reminder scheduler will
+  // already be re-issuing the link, but a brand-new purchase should
+  // still produce a fresh KYC so the buyer can resume. Fall through.
+  return null;
+}
+
+async function handleDuplicateBuyerBypass(
+  existingKyc,
+  normalizedPurchase,
+  panHash,
+  panMasked,
+  payloadHash,
+  requestMeta
+) {
+  const sanitizedPayload = sanitizePayloadForStorage(
+    normalizedPurchase,
+    panMasked
+  );
+
+  return prisma.$transaction(async (tx) => {
+    const responseSnapshot = {
+      success: true,
+      bypassed: true,
+      duplicate: true,
+      code: "DUPLICATE_BUYER_BYPASSED",
+      message:
+        "A KYC already exists for this PAN and buyer name; no new KYC link will be sent.",
+      existingKyc: {
+        kycId: existingKyc.id,
+        panMasked: existingKyc.panMasked,
+        overallStatus: existingKyc.overallStatus
+      }
+    };
+
+    await tx.purchaseEvent.create({
+      data: {
+        purchaseId: normalizedPurchase.purchaseId,
+        panHash,
+        panMasked,
+        payloadHash,
+        status: "kyc_bypassed_duplicate_buyer",
+        linkedKycId: existingKyc.id,
+        responseSnapshot,
+        rawPayload: sanitizedPayload
+      }
+    });
+
+    await tx.kycAuditLog.create({
+      data: {
+        kycId: existingKyc.id,
+        actorType: "system",
+        action: "duplicate_buyer_purchase_received",
+        ipAddress: requestMeta.ipAddress || null,
+        userAgent: requestMeta.userAgent || null,
+        metadata: {
+          purchaseId: normalizedPurchase.purchaseId,
+          message:
+            "Webhook acknowledged for a (PAN, buyerName, mobile) that already has a live KYC. No new KYC was created; no link was sent."
+        }
+      }
+    });
+
+    return responseSnapshot;
+  });
+}
+
+async function handleDuplicateBuyerDifferentMobile(
+  existingKyc,
+  normalizedPurchase,
+  pan,
+  panHash,
+  panMasked,
+  payloadHash,
+  entityResult,
+  requestMeta
+) {
+  const sanitizedPayload = sanitizePayloadForStorage(
+    normalizedPurchase,
+    panMasked
+  );
+
+  return prisma.$transaction(async (tx) => {
+    // Audit-only KycMaster: terminal `cancelled` so the reminder
+    // scheduler ignores it, the new mobile is stored encrypted for
+    // admin / reviewer dashboards, and mobileHash enables fast exact
+    // match by phone number.
+    const auditKyc = await tx.kycMaster.create({
+      data: {
+        purchaseId: normalizedPurchase.purchaseId,
+        buyerName: normalizedPurchase.buyerName,
+        buyerEmail: encryptField(normalizedPurchase.buyerEmail),
+        buyerMobile: encryptField(normalizedPurchase.buyerMobile),
+        mobileHash: hashMobile(normalizedPurchase.buyerMobile),
+        serviceType: normalizedPurchase.serviceType,
+        amount: normalizedPurchase.amount,
+
+        panHash,
+        panMasked,
+        panEnc: encryptField(pan),
+
+        entityChar: entityResult.entityChar,
+        entityType: entityResult.entity.key,
+        entityLabel: entityResult.entity.label,
+
+        overallStatus: "cancelled",
+        currentStage: "duplicate_buyer_different_mobile_logged"
+      }
+    });
+
+    const responseSnapshot = {
+      success: true,
+      duplicate: true,
+      logged: true,
+      code: "DUPLICATE_BUYER_DIFFERENT_MOBILE_LOGGED",
+      message:
+        "Same PAN and buyer name with a different mobile number. Audit entry created so the new mobile is searchable later; no KYC link was sent.",
+      existingKyc: {
+        kycId: existingKyc.id,
+        panMasked: existingKyc.panMasked,
+        overallStatus: existingKyc.overallStatus
+      },
+      newKyc: {
+        kycId: auditKyc.id,
+        panMasked: auditKyc.panMasked,
+        overallStatus: auditKyc.overallStatus,
+        buyerMobile: normalizedPurchase.buyerMobile
+      }
+    };
+
+    await tx.purchaseEvent.create({
+      data: {
+        purchaseId: normalizedPurchase.purchaseId,
+        panHash,
+        panMasked,
+        payloadHash,
+        status: "kyc_logged_duplicate_buyer_different_mobile",
+        linkedKycId: auditKyc.id,
+        responseSnapshot,
+        rawPayload: sanitizedPayload
+      }
+    });
+
+    await tx.kycAuditLog.create({
+      data: {
+        kycId: auditKyc.id,
+        actorType: "system",
+        action: "duplicate_buyer_different_mobile_logged",
+        ipAddress: requestMeta.ipAddress || null,
+        userAgent: requestMeta.userAgent || null,
+        metadata: {
+          purchaseId: normalizedPurchase.purchaseId,
+          relatedKycId: existingKyc.id,
+          message:
+            "Webhook for an existing (PAN, buyerName) with a different mobile. Audit row written; no buyer link / email issued."
+        }
+      }
+    });
+
+    return responseSnapshot;
+  });
+}
+
 async function createKycFromPurchase(purchasePayload, requestMeta = {}, options = {}) {
   const intakeAction = options.intakeAction || "dummy_purchase_received";
 
@@ -235,62 +494,39 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
     );
   }
 
-  // Renewal / Idempotency Rule: If an approved KYC exists for this PAN and buyerName matches exactly, bypass.
-  const existingApprovedKycs = await prisma.kycMaster.findMany({
-    where: { 
-      panHash,
-      overallStatus: "approved"
-    }
+  // Rule 2: same PAN + same buyerName → duplicate-buyer check.
+  //   - same buyer, same mobile, KYC has progressed past link_sent → bypass (no link).
+  //   - same buyer, different mobile → write an audit-only KycMaster
+  //     so the new mobile is searchable (no link, no email).
+  //   - same buyer, same mobile, KYC only in link_sent/created → fall through to Rule 3.
+  //   - different buyerName (or no same-name KYC at all) → fall through to Rule 3.
+  // Sorted by `updatedAt desc` so the *most recent* KYC for a given
+  // (PAN, buyerName) wins when there are multiple — that is the one
+  // carrying the mobile we need to compare against, and the one whose
+  // overallStatus reflects the buyer's current state.
+  const existingKycsForPan = await prisma.kycMaster.findMany({
+    where: { panHash },
+    orderBy: { updatedAt: "desc" }
   });
 
-  if (existingApprovedKycs.length > 0) {
-    const match = existingApprovedKycs.find((k) => 
-      k.buyerName.toLowerCase().trim() === normalizedPurchase.buyerName.toLowerCase().trim()
+  if (existingKycsForPan.length > 0) {
+    const duplicateBuyerResult = await handleDuplicateBuyer(
+      existingKycsForPan,
+      normalizedPurchase,
+      pan,
+      panHash,
+      panMasked,
+      payloadHash,
+      entityResult,
+      requestMeta
     );
 
-    if (match) {
-      const sanitizedPayload = sanitizePayloadForStorage(normalizedPurchase, panMasked);
-      const bypassResult = await prisma.$transaction(async (tx) => {
-        const responseSnapshot = {
-          success: true,
-          bypassed: true,
-          message: "KYC bypassed as an approved record already exists for this entity.",
-          existingKyc: { panMasked: match.panMasked }
-        };
-
-        await tx.purchaseEvent.create({
-          data: {
-            purchaseId: normalizedPurchase.purchaseId,
-            panHash,
-            panMasked,
-            payloadHash,
-            status: "kyc_bypassed_renewal",
-            linkedKycId: match.id,
-            responseSnapshot,
-            rawPayload: sanitizedPayload
-          }
-        });
-
-        await tx.kycAuditLog.create({
-          data: {
-            kycId: match.id,
-            actorType: "system",
-            action: "renewal_purchase_received",
-            ipAddress: requestMeta.ipAddress || null,
-            userAgent: requestMeta.userAgent || null,
-            metadata: { purchaseId: normalizedPurchase.purchaseId }
-          }
-        });
-
-        return responseSnapshot;
-      });
-
-      return bypassResult;
+    if (duplicateBuyerResult) {
+      return duplicateBuyerResult;
     }
   }
 
-  // Rule 2 was removed: Duplicate PANs are now allowed.
-  // Rule 3: new purchaseId + (any) PAN = create KYC.
+  // Rule 3: fresh purchaseId + (any) PAN + (any name) → create a new KYC and send the link.
   const requirements = await getActiveRequirements(entityResult.entity.key);
   const checklist = requirementsToChecklist(requirements);
   const sanitizedPayload = sanitizePayloadForStorage(normalizedPurchase, panMasked);
@@ -307,6 +543,7 @@ async function createKycFromPurchase(purchasePayload, requestMeta = {}, options 
           buyerName: normalizedPurchase.buyerName,
           buyerEmail: encryptField(normalizedPurchase.buyerEmail),
           buyerMobile: encryptField(normalizedPurchase.buyerMobile),
+          mobileHash: hashMobile(normalizedPurchase.buyerMobile),
           serviceType: normalizedPurchase.serviceType,
           amount: normalizedPurchase.amount,
 

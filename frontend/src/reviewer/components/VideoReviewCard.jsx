@@ -1,11 +1,40 @@
 import { useState } from "react";
-import { CheckCircle2, RotateCcw, ShieldCheck, Video } from "lucide-react";
+import { CheckCircle2, Globe2, MapPin, RotateCcw, ShieldCheck, Video } from "lucide-react";
 import { reviewerMediaUrl, reviewVideoDeclaration } from "../../api/kycApi";
 import ReviewDecisionBox from "./ReviewDecisionBox";
 import ReviewerBadge from "./ReviewerBadge";
 
 function percent(value) {
   return `${Math.round((Number(value) || 0) * 100)}%`;
+}
+
+function formatCoord(value) {
+  if (value == null || value === "") return "—";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return `${num.toFixed(4)}°`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function hasGeo({ latitude, longitude, ipAddress }) {
+  return (
+    (latitude != null && latitude !== "") ||
+    (longitude != null && longitude !== "") ||
+    Boolean(ipAddress)
+  );
 }
 
 export default function VideoReviewCard({ videoDeclaration, caseStatus, onReviewed }) {
@@ -132,21 +161,70 @@ export default function VideoReviewCard({ videoDeclaration, caseStatus, onReview
         </div>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={18} className="text-slate-500" />
-          <p className="text-sm font-semibold text-navy">
-            Capture metadata
-          </p>
-        </div>
+      {(hasGeo(videoDeclaration) ||
+        videoDeclaration.startedAt ||
+        videoDeclaration.submittedAt) && (
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-white p-4">
+          <div className="flex items-center gap-2">
+            <Globe2 size={18} className="text-blue-600" />
+            <p className="text-sm font-semibold text-navy">
+              Submission metadata
+            </p>
+          </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <QualityStat label="IP Address" value={videoDeclaration.ipAddress || currentAttempt?.ipAddress || "—"} />
-          <QualityStat label="Latitude" value={videoDeclaration.latitude ?? currentAttempt?.latitude ?? "—"} />
-          <QualityStat label="Longitude" value={videoDeclaration.longitude ?? currentAttempt?.longitude ?? "—"} />
-          <QualityStat label="Timestamp" value={videoDeclaration.submittedAt ? new Date(videoDeclaration.submittedAt).toLocaleString("en-IN") : "—"} />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <QualityStat label="IP address" value={videoDeclaration.ipAddress || "—"} />
+            <QualityStat
+              label="Latitude"
+              value={formatCoord(videoDeclaration.latitude)}
+            />
+            <QualityStat
+              label="Longitude"
+              value={formatCoord(videoDeclaration.longitude)}
+            />
+            <QualityStat
+              label="Started at"
+              value={formatTimestamp(videoDeclaration.startedAt)}
+            />
+            <QualityStat
+              label="Submitted at"
+              value={formatTimestamp(videoDeclaration.submittedAt)}
+            />
+            {currentAttempt?.ipAddress &&
+              currentAttempt.ipAddress !== videoDeclaration.ipAddress && (
+                <QualityStat
+                  label="Attempt IP"
+                  value={currentAttempt.ipAddress}
+                />
+              )}
+            {currentAttempt &&
+              (currentAttempt.latitude != null ||
+                currentAttempt.longitude != null) &&
+              (currentAttempt.latitude !== videoDeclaration.latitude ||
+                currentAttempt.longitude !== videoDeclaration.longitude) && (
+                <QualityStat
+                  label="Attempt location"
+                  value={`${formatCoord(currentAttempt.latitude)}, ${formatCoord(
+                    currentAttempt.longitude
+                  )}`}
+                />
+              )}
+          </div>
+
+          {quality.locationSource && (
+            <p className="mt-3 inline-flex items-center gap-1 rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+              <MapPin size={12} />
+              Location source: {quality.locationSource}
+              {quality.locationCity ? ` (${quality.locationCity}` : ""}
+              {quality.locationCountry
+                ? `${quality.locationCity ? ", " : " ("}${quality.locationCountry})`
+                : quality.locationCity
+                ? ")"
+                : ""}
+            </p>
+          )}
         </div>
-      </div>
+      )}
 
       {videoDeclaration.reviewerRemarks && (
         <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">

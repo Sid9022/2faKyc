@@ -132,13 +132,14 @@ export function buyerMediaUrl(relativePath) {
 }
 
 /**
- * Reviewer media: <img>/<video> tags cannot send Authorization headers,
- * so the access token rides along as a query parameter.
+ * Reviewer media: the backend already embeds a short-lived, read-only
+ * media token (?mt=...) in the file/stream URLs returned by the case
+ * detail endpoint, so the full access token never appears in a URL.
+ * We only need to prefix the API origin here.
  */
 export function reviewerMediaUrl(relativePath) {
   if (!relativePath) return null;
-  const token = getAccessToken();
-  return `${API_BASE_URL}${relativePath}?access_token=${encodeURIComponent(token || "")}`;
+  return `${API_BASE_URL}${relativePath}`;
 }
 
 // ---------- auth APIs ----------

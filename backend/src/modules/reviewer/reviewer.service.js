@@ -1,5 +1,5 @@
 const prisma = require("../../config/prisma");
-const { decryptField, maskEmail } = require("../../utils/crypto.util");
+const { decryptField, hashMobile } = require("../../utils/crypto.util");
 const { validatePAN, hashPAN } = require("../kyc/pan.utils");
 const { getAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
 const { createSecureKycLinkForKyc } = require("../kyc-link/kycLink.service");
@@ -62,6 +62,21 @@ async function listKycCases(filters = {}) {
     if (status) where.overallStatus = status;
   }
 
+  // Mobile search: mirror of the PAN search — the input mobile is
+  // trimmed, hashed with MOBILE_HASH_SECRET, and matched against
+  // mobileHash. Used by the fraud-trail case 3 rows: each different
+  // mobile ever tried against a PAN+name is queryable here. Empty /
+  // unparseable inputs are silently ignored rather than 400-ing the
+  // whole list — clients commonly pass `?mobile=` with no value.
+  if (filters.mobile) {
+    const mobileHash = hashMobile(filters.mobile);
+    if (mobileHash) {
+      where.mobileHash = mobileHash;
+      delete where.overallStatus;
+      if (status) where.overallStatus = status;
+    }
+  }
+
   const cases = await prisma.kycMaster.findMany({
     where,
     include: {
@@ -99,13 +114,12 @@ async function listKycCases(filters = {}) {
       kycId: item.id,
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
-      // Bug B1 + B2: never decrypt PII in the list response. The list
-      // view can render up to 300 cases per page — exposing full PAN +
-      // email makes the entire buyer DB one screenshot / shoulder-surf
-      // away. Detail-page endpoints still return full PII for the
-      // reviewer's working case.
-      buyerEmail: maskEmail(item.buyerEmail),
-      pan: item.panMasked,
+      // Full PII is intentionally returned so reviewers can search/match
+      // cases client-side. buyerMobile is decrypted here (legacy rows are
+      // encrypted; decryptField passes any plaintext through unchanged).
+      buyerEmail: decryptField(item.buyerEmail),
+      buyerMobile: decryptField(item.buyerMobile),
+      pan: decryptField(item.panEnc),
       panMasked: item.panMasked,
       entityType: item.entityType,
       entityLabel: item.entityLabel,
@@ -140,7 +154,11 @@ async function listKycCases(filters = {}) {
   });
 }
 
-async function getKycCaseDetail(kycId) {
+async function getKycCaseDetail(kycId, mediaToken = "") {
+  // Media URLs carry a short-lived, read-only ?mt= token (never the full
+  // access token) so an <img>/<video> src that leaks is harmless.
+  const mt = mediaToken ? `?mt=${encodeURIComponent(mediaToken)}` : "";
+
   const kyc = await prisma.kycMaster.findUnique({
     where: { id: kycId },
     include: {
@@ -257,8 +275,8 @@ async function getKycCaseDetail(kycId) {
         mimeType: file.mimeType,
         sizeBytes: file.sizeBytes,
         fileHash: file.fileHash,
-        // Authenticated streaming endpoint — append your access token.
-        fileUrl: `/api/reviewer/files/${file.id}`,
+        // Authenticated streaming endpoint; the media token is already baked in.
+        fileUrl: `/api/reviewer/files/${file.id}${mt}`,
         version: file.version,
         isCurrent: file.isCurrent,
         uploadedAt: file.uploadedAt,
@@ -289,20 +307,25 @@ async function getKycCaseDetail(kycId) {
           faceQualityMetadata: kyc.videoDeclaration.faceQualityMetadata,
           startedAt: kyc.videoDeclaration.startedAt,
           submittedAt: kyc.videoDeclaration.submittedAt,
-          ipAddress: kyc.videoDeclaration.ipAddress,
-          latitude: kyc.videoDeclaration.latitude,
-          longitude: kyc.videoDeclaration.longitude,
+          ipAddress: kyc.videoDeclaration.ipAddress || null,
+          userAgent: kyc.videoDeclaration.userAgent || null,
+          latitude: kyc.videoDeclaration.latitude ?? null,
+          longitude: kyc.videoDeclaration.longitude ?? null,
           attempts: kyc.videoDeclaration.attempts.map((attempt) => ({
             id: attempt.id,
             status: attempt.status,
-            streamUrl: `/api/reviewer/video-attempts/${attempt.id}/stream`,
+            streamUrl: `/api/reviewer/video-attempts/${attempt.id}/stream${mt}`,
             mimeType: attempt.mimeType,
             sizeBytes: attempt.sizeBytes,
             durationSeconds: attempt.durationSeconds,
             faceCheckPassed: attempt.faceCheckPassed,
             faceQualityMetadata: attempt.faceQualityMetadata,
             uploadedAt: attempt.uploadedAt,
-            submittedAt: attempt.submittedAt
+            submittedAt: attempt.submittedAt,
+            ipAddress: attempt.ipAddress || null,
+            userAgent: attempt.userAgent || null,
+            latitude: attempt.latitude ?? null,
+            longitude: attempt.longitude ?? null
           }))
         }
       : null,

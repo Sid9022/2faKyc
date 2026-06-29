@@ -17,6 +17,26 @@ function verifyAccessToken(token) {
 }
 
 /**
+ * Short-lived, read-only token for media streaming. <img>/<video> tags
+ * cannot send Authorization headers, so the token has to ride in the URL
+ * query string — where it can leak via history, Referer and proxy logs.
+ * To keep that leak harmless we never put the full access token in a URL:
+ * we mint a separate token that (a) expires quickly and (b) is marked
+ * `scope: "media"`, so even if captured it cannot call any mutating API.
+ */
+function signMediaToken(user) {
+  return jwt.sign(
+    { sub: user.id, role: user.role, scope: "media" },
+    env.JWT_SECRET,
+    {
+      expiresIn: env.MEDIA_TOKEN_TTL || "30m",
+      issuer: "kyc-api",
+      audience: "kyc-app"
+    }
+  );
+}
+
+/**
  * Requires a valid JWT access token in the Authorization header.
  * Sets req.user = { id, role, name, email }.
  */
@@ -52,12 +72,19 @@ function requireAuth(req, res, next) {
 }
 
 /**
- * Same as requireAuth, but also accepts ?access_token= in the query string.
- * ONLY for GET media-streaming routes (<img>/<video> tags cannot send
- * Authorization headers). Never mount this on mutating routes.
+ * Auth for GET media-streaming routes only. Two ways in:
+ *   - Authorization: Bearer <access token>  (normal API clients)
+ *   - ?mt=<media token>                      (<img>/<video> tags)
+ *
+ * A token presented in the query string MUST be a `scope: "media"` token
+ * (see signMediaToken). A full access token is only ever accepted from the
+ * Authorization header, so leaking a media URL never leaks API access.
+ * Never mount this on mutating routes.
  */
-function requireAuthAllowQueryToken(req, res, next) {
-  const token = extractBearerToken(req) || req.query.access_token;
+function requireMediaToken(req, res, next) {
+  const headerToken = extractBearerToken(req);
+  const queryToken = req.query.mt ? String(req.query.mt) : null;
+  const token = headerToken || queryToken;
 
   if (!token) {
     return res.status(401).json({
@@ -68,7 +95,16 @@ function requireAuthAllowQueryToken(req, res, next) {
   }
 
   try {
-    const payload = verifyAccessToken(String(token));
+    const payload = verifyAccessToken(token);
+
+    // A token from the query string is only trusted if it is media-scoped.
+    if (!headerToken && payload.scope !== "media") {
+      return res.status(401).json({
+        success: false,
+        code: "INVALID_TOKEN",
+        message: "Invalid media token."
+      });
+    }
 
     req.user = {
       id: payload.sub,
@@ -111,6 +147,7 @@ function requireRole(...roles) {
 
 module.exports = {
   requireAuth,
-  requireAuthAllowQueryToken,
+  requireMediaToken,
+  signMediaToken,
   requireRole
 };

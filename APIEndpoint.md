@@ -177,13 +177,21 @@ await fetch("https://kyc.example.com/api/webhooks/purchase-created", {
 
 | Case | HTTP | What you get |
 |---|---|---|
-| New purchaseId + new PAN | 200 | `{success:true, duplicate:false, kyc:{…checklist…}, kycLink:{buyerKycUrl, expiresAt}}` — KYC created, email sent |
+| New purchaseId + new PAN (or same PAN but **different** buyerName) | 200 | `{success:true, duplicate:false, kyc:{…checklist…}, kycLink:{buyerKycUrl, expiresAt}}` — KYC created, email sent |
 | Same purchaseId again (any payload) | 200 | Original response replayed with `idempotent:true` — nothing re-created |
-| New purchaseId, PAN already has a KYC | 200 | `{success:true, duplicate:true, existingKyc:{…}, duplicateLog:{…}}` — logged and ignored |
+| Same PAN + same buyerName + **same** mobile, KYC has progressed past `link_sent` (Case 1) | 200 | `{success:true, bypassed:true, duplicate:true, code:"DUPLICATE_BUYER_BYPASSED", existingKyc:{…}}` — no new KYC, no link sent |
+| Same PAN + same buyerName + **different** mobile (Case 3) | 200 | `{success:true, duplicate:true, logged:true, code:"DUPLICATE_BUYER_DIFFERENT_MOBILE_LOGGED", existingKyc:{…}, newKyc:{…}}` — audit-only `KycMaster` written in `cancelled` state so the new mobile is searchable; no link / no email |
 | Same purchaseId with a **different** PAN | 409 | `code:"PURCHASE_ID_CONFLICT"` — rejected |
 | Bad/missing signature | 401 | `WEBHOOK_SIGNATURE_REQUIRED` / `WEBHOOK_SIGNATURE_INVALID` |
 | Invalid payload | 400 | `INVALID_WEBHOOK_PAYLOAD` + field errors |
 | Invalid/unsupported PAN | 400 | `INVALID_OR_UNSUPPORTED_PAN` |
+
+**Duplicate-buyer rules (Case 1 / Case 3)** — same PAN as an existing KYC triggers:
+
+1. If the **same buyerName + same mobile** and the existing KYC has progressed past `link_sent` (any of `opened`, `in_progress`, `submitted`, `under_review`, `resubmission_required`, `approved`, `rejected`), the webhook is acknowledged with `code:"DUPLICATE_BUYER_BYPASSED"`. No new KYC is created; no link / email is sent. A `PurchaseEvent` with status `kyc_bypassed_duplicate_buyer` is written for the audit trail.
+2. If the **same buyerName but a different mobile**, an audit-only `KycMaster` row is created in `cancelled` state (`currentStage = duplicate_buyer_different_mobile_logged`). The new mobile is stored encrypted (`buyerMobile`) + hashed (`mobileHash`) so admin / reviewer dashboards can search every mobile ever tried against this PAN + name. **No link, no email.** A `PurchaseEvent` with status `kyc_logged_duplicate_buyer_different_mobile` is written.
+
+If the existing same-name KYC is only in `created` / `link_sent` (link sent but never opened) or in `expired` / `cancelled` (link-level terminal), the webhook falls through to the default behavior and a fresh KYC is created.
 
 It is **safe to retry on any 5xx** — idempotency is guaranteed by `purchaseId`.
 
@@ -329,13 +337,15 @@ Lists reviewable cases (default statuses: submitted, under_review, resubmission_
 |---|---|---|
 | `status` | `submitted` | Filter to one status |
 | `pan` | `ABCPE1234F` | **Exact PAN lookup** — the value is hashed server-side and matched against `panHash` (any status). Invalid PAN format returns `[]`. Raw PANs are never stored. |
+| `mobile` | `9876543210` | **Exact mobile lookup** — the value is hashed server-side (`MOBILE_HASH_SECRET`) and matched against `mobileHash`. Used to find every KYC ever opened under a phone number (incl. the audit-only `cancelled` rows from the duplicate-buyer rule). |
 | `limit` | `100` | Max 300 |
 
 ```bash
 curl -s "http://localhost:5000/api/reviewer/kyc-cases?pan=abcpe1234f" -H "Authorization: Bearer $TOKEN"
+curl -s "http://localhost:5000/api/reviewer/kyc-cases?mobile=9876543210" -H "Authorization: Bearer $TOKEN"
 ```
 
-Each case includes `documentSummary` (total/required/acceptedRequired/failed/finalSubmitted), `videoSummary`, consent info, and the decrypted buyer email.
+Each case includes `documentSummary` (total/required/acceptedRequired/failed/finalSubmitted), `videoSummary`, consent info, the **masked** buyer email + mobile, and the masked PAN.
 
 ### GET `/api/reviewer/kyc-cases/:kycId`
 The full case file: buyer details (decrypted email/mobile), consent, `documents[]` (all versions of all files with `fileUrl`s, reviewer remarks, **`reviewedByName`**), `videoDeclaration` (script, runtime code, attempts with `streamUrl`s, client-reported face metadata), `autoChecks[]` (advisory), `links` + click logs, `auditLogs[]` (latest 100, with **`actorName`**), and `finalReviews[]` history.
@@ -412,6 +422,7 @@ Pipeline oversight — every case (all statuses), with **who reviewed what**:
 | Query | Notes |
 |---|---|
 | `status` | optional filter |
+| `mobile` | **Exact mobile lookup** — hashed with `MOBILE_HASH_SECRET` and matched against `mobileHash`. Use to find every KYC ever tied to a phone number, including the `cancelled` audit rows from the duplicate-buyer rule. |
 | `limit` | default 200, max 500 |
 
 Per case: buyer (full decrypted email), `progress` (accepted/required docs, flagged count, video status, finalSubmitted), `reviewers[]` (distinct reviewer **names** who touched the case), `lastDecision` (`{decision, remarks, byName, at}`).

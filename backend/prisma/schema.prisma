@@ -51,6 +51,8 @@ enum PurchaseEventStatus {
   retry_same_payload
   retry_same_pan_changed_payload
   kyc_bypassed_renewal
+  kyc_bypassed_duplicate_buyer
+  kyc_logged_duplicate_buyer_different_mobile
 }
 
 enum RequirementInputMode {
@@ -115,6 +117,8 @@ model KycMaster {
   panMasked     String
   panEnc        String?          // AES-256-GCM (enc:v1:) — reversible; decrypted for admin/reviewer
 
+  mobileHash    String?          // sha256(mobile + MOBILE_HASH_SECRET) — exact-match fraud search; null when no mobile given
+
   entityChar    String
   entityType    String
   entityLabel   String
@@ -139,6 +143,8 @@ model KycMaster {
   @@index([entityType])
   @@index([overallStatus])
   @@index([updatedAt])
+  @@index([panHash])
+  @@index([mobileHash])
   @@map("kyc_masters")
 }
 
