@@ -4,7 +4,7 @@ const { z } = require("zod");
 const prisma = require("../../config/prisma");
 const { getAllSettings, setSetting } = require("../../utils/settings.util");
 const { listEmailLogs } = require("../email/email.service");
-const { maskEmail } = require("../../utils/crypto.util");
+const { decryptField, hashMobile, maskEmail, maskMobile } = require("../../utils/crypto.util");
 const { buildUserNameMap } = require("../reviewer/reviewer.service");
 const { createKycFromPurchase } = require("../kyc/kyc.service");
 
@@ -526,6 +526,13 @@ async function listAdminKycCases(filters = {}) {
   const where = {};
   if (filters.status) where.overallStatus = filters.status;
 
+  // Mobile search — same fraud-trail use case as the reviewer list.
+  // Empty input is silently ignored.
+  if (filters.mobile) {
+    const mobileHash = hashMobile(filters.mobile);
+    if (mobileHash) where.mobileHash = mobileHash;
+  }
+
   const cases = await prisma.kycMaster.findMany({
     where,
     include: {
@@ -590,6 +597,7 @@ async function listAdminKycCases(filters = {}) {
       // Admin list can render up to 500 cases per page. Detail-page
       // endpoints still return full PII for the active case.
       buyerEmail: maskEmail(item.buyerEmail),
+      buyerMobile: maskMobile(decryptField(item.buyerMobile)),
       pan: item.panMasked,
       panMasked: item.panMasked,
       entityLabel: item.entityLabel,

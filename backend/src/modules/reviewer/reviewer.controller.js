@@ -47,6 +47,7 @@ async function listCases(req, res, next) {
     const cases = await listKycCases({
       status: req.query.status,
       pan: req.query.pan,
+      mobile: req.query.mobile,
       limit: req.query.limit
     });
 

@@ -59,17 +59,18 @@ One row per unique PAN. Holds buyer identity, entity classification, and the ove
 | `panHash` | SHA-256(pan + PAN_HASH_SECRET). **Unique** — blind index for one-KYC-per-PAN dedup + exact search. ⚠️ Changing the secret orphans all dedup history. |
 | `panMasked` | `ABCP****P` — shown on buyer/public endpoints |
 | `panEnc` | AES-256-GCM (`enc:v1:`) reversible ciphertext of the full PAN. Decrypted ONLY in admin/reviewer services so staff can view the full PAN. |
-| `buyerEmail`, `buyerMobile` | ⚠️ currently plaintext — encrypt (Plan S5) |
-| `amount` | ⚠️ `Float` — migrate to `Decimal(12,2)` |
-| `entityChar/Type/Label` | derived from PAN[3]: P→individual, C→company, F→firm_llp |
+| `mobileHash` | SHA-256(mobile + MOBILE_HASH_SECRET). Nullable. Blind index for exact-match fraud search by phone number — used by the duplicate-buyer "different mobile" rule so every mobile ever tried against a PAN+name is retrievable. ⚠️ Changing the secret orphans the index. |
+| `buyerEmail`, `buyerMobile` | AES-256-GCM (`enc:v1:`) since the S5 hardening pass; legacy plaintext rows are still readable. |
+| `amount` | `Decimal(12,2)` |
+| `entityChar/Type/Label` | derived from PAN[3]: P→individual, C→company, F=firm_llp |
 | `overallStatus` | enum, see state machine §3 |
 | `currentStage` | free-text sub-stage (see §3) — consider enum later |
 
-Indexes: `purchaseId`, `entityType`, `overallStatus`.
+Indexes: `purchaseId`, `entityType`, `overallStatus`, `mobileHash`.
 
 ### 2.2 `purchase_events` (PurchaseEvent) — intake idempotency ledger
 One row per `purchaseId` ever received. Records how the webhook was resolved:
-`kyc_created` | `duplicate_pan_ignored` | `purchase_id_conflict` | `retry_same_payload` | `retry_same_pan_changed_payload`.
+`kyc_created` | `duplicate_pan_ignored` | `purchase_id_conflict` | `retry_same_payload` | `retry_same_pan_changed_payload` | `kyc_bypassed_renewal` | `kyc_bypassed_duplicate_buyer` (Case 1 — same PAN + same buyerName + same mobile + existing KYC progressed past `link_sent`) | `kyc_logged_duplicate_buyer_different_mobile` (Case 3 — same PAN + same buyerName with a **different** mobile; an audit-only `KycMaster` is written so the new mobile is searchable later).
 Stores `payloadHash` (detects changed retries), `responseSnapshot` (replayed verbatim on retry), `retryCount`, `conflictCount`.
 ⚠️ `rawPayload` currently contains the **unmasked PAN** — strip before insert.
 

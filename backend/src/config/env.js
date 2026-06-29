@@ -12,6 +12,11 @@ const isProduction = NODE_ENV === "production";
  *
  * WARNING: PAN_HASH_SECRET is permanent once real data exists.
  * Changing it breaks duplicate-PAN detection for all existing rows.
+ *
+ * MOBILE_HASH_SECRET is the equivalent for buyer mobile numbers — it
+ * powers exact-match fraud search by mobile. New field, no legacy data
+ * to break; falls back to PAN_HASH_SECRET when not explicitly set so
+ * existing deployments keep working.
  */
 const SECRET_KEYS = [
   "PAN_HASH_SECRET",
@@ -56,6 +61,12 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   ENCRYPTION_KEY: z.string().min(16),
   WEBHOOK_SECRET: z.string().min(16),
+
+  // Mobile-hash secret for buyerMobile exact-match fraud search.
+  // Optional — falls back to PAN_HASH_SECRET when unset. In production
+  // set this to its own value so a leaked mobile-hash table can't be
+  // correlated back to PAN hashes.
+  MOBILE_HASH_SECRET: z.string().min(16).optional(),
 
   ACCESS_TOKEN_TTL: z.string().default("30m"),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(7),
@@ -131,7 +142,11 @@ if (!parsed.success) {
 
 const env = {
   ...parsed.data,
-  isProduction
+  isProduction,
+  // If MOBILE_HASH_SECRET is not explicitly configured, reuse
+  // PAN_HASH_SECRET so old deployments and the dev fallback keep
+  // working. Production should set its own value.
+  MOBILE_HASH_SECRET: parsed.data.MOBILE_HASH_SECRET || parsed.data.PAN_HASH_SECRET
 };
 
 module.exports = env;

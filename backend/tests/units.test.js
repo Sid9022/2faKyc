@@ -12,6 +12,7 @@ const {
 const {
   encryptField,
   decryptField,
+  hashMobile,
   maskEmail,
   maskMobile,
   sha256
@@ -532,3 +533,265 @@ function readKycEmailTemplates() {
     path.join(__dirname, "../src/modules/email/email.templates.js")
   );
 }
+
+// ---------- Duplicate-buyer webhook rules (case 1 / case 3) ----------
+
+test("DUP1: hashMobile returns null for empty input (lets the column stay NULL)", () => {
+  // null / undefined / "" / whitespace-only all collapse to null. This
+  // keeps kyc_masters.mobileHash NULL rather than carrying a meaningless
+  // hash of the empty string, which would silently match `?mobile=`.
+  for (const v of [null, undefined, "", "   "]) {
+    assert.equal(hashMobile(v), null, `empty input ${JSON.stringify(v)} must hash to null`);
+  }
+});
+
+test("DUP1: hashMobile is deterministic and salted", () => {
+  const a = hashMobile("9876543210");
+  const b = hashMobile("9876543210");
+  assert.equal(a, b, "same input → same hash");
+  assert.notEqual(a, hashMobile("9876543211"), "different input → different hash");
+  // Different from a naive SHA-256 — must be salted by MOBILE_HASH_SECRET.
+  const naive = sha256("9876543210");
+  assert.notEqual(a, naive, "hashMobile must not equal unsalted sha256");
+});
+
+test("DUP2: KYC_DONE_STATUSES is defined and excludes initial/link_sent/expired/cancelled", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
+    "utf8"
+  );
+  // The constant must be exported / used so the duplicate-buyer rule
+  // can reuse it.
+  assert.ok(
+    /KYC_DONE_STATUSES/.test(src),
+    "kyc.service.js must define KYC_DONE_STATUSES for the duplicate-buyer rule"
+  );
+  // The set must include the "buyer engaged past link_sent" states.
+  for (const s of [
+    "opened",
+    "in_progress",
+    "submitted",
+    "under_review",
+    "resubmission_required",
+    "approved",
+    "rejected"
+  ]) {
+    assert.ok(
+      src.includes(`"${s}"`),
+      `KYC_DONE_STATUSES must include "${s}"`
+    );
+  }
+  // And must NOT include the initial / link-level terminal states —
+  // those should fall through to Rule 3 so the buyer can resume.
+  // (Comments may mention them by name; only check the Set literal.)
+  const setMatch = src.match(
+    /KYC_DONE_STATUSES\s*=\s*new\s+Set\(\s*\[([\s\S]*?)\]\s*\)/
+  );
+  assert.ok(setMatch, "KYC_DONE_STATUSES must be a `new Set([...])` literal");
+  const setBody = setMatch[1];
+  for (const s of ["created", "link_sent", "expired", "cancelled"]) {
+    assert.ok(
+      !setBody.includes(`"${s}"`),
+      `KYC_DONE_STATUSES must NOT include "${s}"`
+    );
+  }
+});
+
+test("DUP3: case 1 — same PAN + same name + same mobile + done → bypass", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
+    "utf8"
+  );
+  // Must have a handler dedicated to the bypass path.
+  assert.ok(
+    /function\s+handleDuplicateBuyerBypass\s*\(/.test(src),
+    "kyc.service.js must define handleDuplicateBuyerBypass for case 1"
+  );
+  // The PurchaseEvent status must be the new enum value.
+  assert.ok(
+    /status:\s*"kyc_bypassed_duplicate_buyer"/.test(src),
+    "case 1 must write PurchaseEvent.status = kyc_bypassed_duplicate_buyer"
+  );
+  // The response must NOT contain a kycLink — no buyer URL is sent.
+  const bypassBlock = src.match(
+    /async\s+function\s+handleDuplicateBuyerBypass[\s\S]*?\n\}\n/
+  );
+  assert.ok(bypassBlock, "bypass handler block must exist");
+  assert.ok(
+    !/kycLink/.test(bypassBlock[0]) && !/buyerKycUrl/.test(bypassBlock[0]),
+    "case 1 must NOT generate or return a buyer kycLink/URL"
+  );
+});
+
+test("DUP4: case 3 — same PAN + same name + DIFFERENT mobile → audit-only KycMaster", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
+    "utf8"
+  );
+  assert.ok(
+    /function\s+handleDuplicateBuyerDifferentMobile\s*\(/.test(src),
+    "kyc.service.js must define handleDuplicateBuyerDifferentMobile for case 3"
+  );
+  // The audit row must be a real KycMaster so the new mobile is
+  // searchable (encrypted buyerMobile + mobileHash).
+  const block = src.match(
+    /async\s+function\s+handleDuplicateBuyerDifferentMobile[\s\S]*?\n\}\n/
+  );
+  assert.ok(block, "case 3 handler block must exist");
+  assert.ok(
+    /tx\.kycMaster\.create/.test(block[0]),
+    "case 3 must create a KycMaster row"
+  );
+  assert.ok(
+    /overallStatus:\s*"cancelled"/.test(block[0]),
+    "case 3 KycMaster must be terminal (cancelled) so reminders stop"
+  );
+  assert.ok(
+    /mobileHash:\s*hashMobile\(/.test(block[0]),
+    "case 3 must compute mobileHash so the new mobile is searchable"
+  );
+  // No kycLink / no buyer email — audit only.
+  assert.ok(
+    !/createSecureKycLinkForKyc/.test(block[0]) &&
+      !/sendKycEmail/.test(block[0]) &&
+      !/buyerKycUrl/.test(block[0]),
+    "case 3 must NOT generate a link or send an email"
+  );
+  // PurchaseEvent must carry the new status.
+  assert.ok(
+    /status:\s*"kyc_logged_duplicate_buyer_different_mobile"/.test(src),
+    "case 3 must write PurchaseEvent.status = kyc_logged_duplicate_buyer_different_mobile"
+  );
+});
+
+test("DUP5: PurchaseEventStatus enum includes the two new values", () => {
+  const src = read(
+    path.join(__dirname, "../prisma/schema.prisma"),
+    "utf8"
+  );
+  assert.ok(
+    /kyc_bypassed_duplicate_buyer/.test(src),
+    "PurchaseEventStatus enum must include kyc_bypassed_duplicate_buyer"
+  );
+  assert.ok(
+    /kyc_logged_duplicate_buyer_different_mobile/.test(src),
+    "PurchaseEventStatus enum must include kyc_logged_duplicate_buyer_different_mobile"
+  );
+});
+
+test("DUP6: mobileHash column + index exist on KycMaster", () => {
+  const src = read(
+    path.join(__dirname, "../prisma/schema.prisma"),
+    "utf8"
+  );
+  assert.ok(
+    /mobileHash\s+String\?/.test(src),
+    "KycMaster must declare mobileHash String?"
+  );
+  assert.ok(
+    /@@index\(\[mobileHash\]\)/.test(src),
+    "KycMaster must declare @@index([mobileHash]) for fast fraud lookup"
+  );
+});
+
+test("DUP7: KycMaster.create calls populate mobileHash", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
+    "utf8"
+  );
+  // Both creation paths (Rule 3 fresh KYC and case 3 audit row) must
+  // set mobileHash from the normalized buyer mobile.
+  const matches = src.match(/mobileHash:\s*hashMobile\(/g) || [];
+  assert.ok(
+    matches.length >= 2,
+    `kyc.service.js must call hashMobile() in BOTH KycMaster.create sites (found ${matches.length})`
+  );
+});
+
+test("DUP8: reviewer listKycCases supports ?mobile= search via mobileHash", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/reviewer/reviewer.service.js"),
+    "utf8"
+  );
+  assert.ok(
+    /filters\.mobile/.test(src),
+    "reviewer.service.js must read filters.mobile"
+  );
+  // Accept both inline `where.mobileHash = hashMobile(...)` and the
+  // two-line `const x = hashMobile(...); where.mobileHash = x` form.
+  assert.ok(
+    /where\.mobileHash\s*=\s*(?:hashMobile\b|mobileHash\b)/.test(src),
+    "reviewer.service.js must filter on where.mobileHash"
+  );
+});
+
+test("DUP9: admin listAdminKycCases supports ?mobile= search via mobileHash", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/admin/admin.service.js"),
+    "utf8"
+  );
+  assert.ok(
+    /filters\.mobile/.test(src),
+    "admin.service.js must read filters.mobile"
+  );
+  assert.ok(
+    /where\.mobileHash\s*=\s*(?:hashMobile\b|mobileHash\b)/.test(src),
+    "admin.service.js must filter on where.mobileHash"
+  );
+});
+
+test("DUP10: env.js exposes MOBILE_HASH_SECRET (falls back to PAN_HASH_SECRET)", () => {
+  const src = read(
+    path.join(__dirname, "../src/config/env.js"),
+    "utf8"
+  );
+  assert.ok(
+    /MOBILE_HASH_SECRET/.test(src),
+    "env.js must define MOBILE_HASH_SECRET"
+  );
+  // The fallback must reuse PAN_HASH_SECRET when unset so existing
+  // deployments don't need a new secret to boot.
+  assert.ok(
+    /MOBILE_HASH_SECRET:\s*parsed\.data\.MOBILE_HASH_SECRET\s*\|\|\s*parsed\.data\.PAN_HASH_SECRET/.test(src),
+    "env.js must fall back MOBILE_HASH_SECRET to PAN_HASH_SECRET when unset"
+  );
+});
+
+test("DUP11: createKycFromPurchase calls Rule 2 (handleDuplicateBuyer) before Rule 3", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
+    "utf8"
+  );
+  // Find the call sites (not the function definitions). The call uses
+  // `await handleDuplicateBuyer(...)` and `getActiveRequirements(...)`.
+  const rule2Idx = src.indexOf("await handleDuplicateBuyer(");
+  const rule3Idx = src.indexOf("await getActiveRequirements(");
+  assert.ok(rule2Idx > 0, "Rule 2 (handleDuplicateBuyer) must be called");
+  assert.ok(rule3Idx > 0, "Rule 3 (getActiveRequirements → create) must still exist");
+  assert.ok(
+    rule2Idx < rule3Idx,
+    "Rule 2 must run BEFORE Rule 3 so the duplicate-buyer check is honoured"
+  );
+  // The lookup must be ordered for determinism when several KYCs share a PAN.
+  assert.ok(
+    /orderBy:\s*\{\s*updatedAt:\s*"desc"\s*\}/.test(src),
+    "PAN lookup must be orderBy updatedAt desc for deterministic match selection"
+  );
+});
+
+test("DUP12: case 3 audit KycMaster is terminal — currentStage marks it", () => {
+  const src = read(
+    path.join(__dirname, "../src/modules/kyc/kyc.service.js"),
+    "utf8"
+  );
+  // The audit row should carry a recognisable currentStage so admins
+  // can tell it apart from genuine cancelled KYCs.
+  const block = src.match(
+    /async\s+function\s+handleDuplicateBuyerDifferentMobile[\s\S]*?\n\}\n/
+  );
+  assert.ok(block, "case 3 handler block must exist");
+  assert.ok(
+    /currentStage:\s*"duplicate_buyer_different_mobile_logged"/.test(block[0]),
+    "case 3 must set currentStage = duplicate_buyer_different_mobile_logged"
+  );
+});

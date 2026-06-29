@@ -1,5 +1,5 @@
 const prisma = require("../../config/prisma");
-const { decryptField, maskEmail } = require("../../utils/crypto.util");
+const { decryptField, hashMobile, maskEmail, maskMobile } = require("../../utils/crypto.util");
 const { validatePAN, hashPAN } = require("../kyc/pan.utils");
 const { getAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
 const { createSecureKycLinkForKyc } = require("../kyc-link/kycLink.service");
@@ -62,6 +62,21 @@ async function listKycCases(filters = {}) {
     if (status) where.overallStatus = status;
   }
 
+  // Mobile search: mirror of the PAN search — the input mobile is
+  // trimmed, hashed with MOBILE_HASH_SECRET, and matched against
+  // mobileHash. Used by the fraud-trail case 3 rows: each different
+  // mobile ever tried against a PAN+name is queryable here. Empty /
+  // unparseable inputs are silently ignored rather than 400-ing the
+  // whole list — clients commonly pass `?mobile=` with no value.
+  if (filters.mobile) {
+    const mobileHash = hashMobile(filters.mobile);
+    if (mobileHash) {
+      where.mobileHash = mobileHash;
+      delete where.overallStatus;
+      if (status) where.overallStatus = status;
+    }
+  }
+
   const cases = await prisma.kycMaster.findMany({
     where,
     include: {
@@ -105,6 +120,7 @@ async function listKycCases(filters = {}) {
       // away. Detail-page endpoints still return full PII for the
       // reviewer's working case.
       buyerEmail: maskEmail(item.buyerEmail),
+      buyerMobile: maskMobile(decryptField(item.buyerMobile)),
       pan: item.panMasked,
       panMasked: item.panMasked,
       entityType: item.entityType,
@@ -289,6 +305,10 @@ async function getKycCaseDetail(kycId) {
           faceQualityMetadata: kyc.videoDeclaration.faceQualityMetadata,
           startedAt: kyc.videoDeclaration.startedAt,
           submittedAt: kyc.videoDeclaration.submittedAt,
+          ipAddress: kyc.videoDeclaration.ipAddress || null,
+          userAgent: kyc.videoDeclaration.userAgent || null,
+          latitude: kyc.videoDeclaration.latitude ?? null,
+          longitude: kyc.videoDeclaration.longitude ?? null,
           attempts: kyc.videoDeclaration.attempts.map((attempt) => ({
             id: attempt.id,
             status: attempt.status,
@@ -299,7 +319,11 @@ async function getKycCaseDetail(kycId) {
             faceCheckPassed: attempt.faceCheckPassed,
             faceQualityMetadata: attempt.faceQualityMetadata,
             uploadedAt: attempt.uploadedAt,
-            submittedAt: attempt.submittedAt
+            submittedAt: attempt.submittedAt,
+            ipAddress: attempt.ipAddress || null,
+            userAgent: attempt.userAgent || null,
+            latitude: attempt.latitude ?? null,
+            longitude: attempt.longitude ?? null
           }))
         }
       : null,
