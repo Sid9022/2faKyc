@@ -27,10 +27,7 @@ app.set("trust proxy", 1);
 
 app.use(
   helmet({
-    // The frontend runs on a different origin; media (<img>/<video>) loads
-    // would be blocked by the default same-origin CORP header. File access
-    // itself is still protected by JWT / link-token auth.
-    crossOriginResourcePolicy: { policy: "cross-origin" }
+    crossOriginResourcePolicy: { policy: "same-origin" }
   })
 );
 

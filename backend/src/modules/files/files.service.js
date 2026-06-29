@@ -35,6 +35,13 @@ async function getKycIdByToken(rawToken) {
   if (!link) return null;
   if (link.status === "revoked") return null;
 
+  if (link.expiresAt && link.expiresAt < new Date()) {
+    const gracePeriod = new Date(link.expiresAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+    if (new Date() > gracePeriod) {
+      return null; // Link is fully expired, block access to media
+    }
+  }
+
   return link.kycId;
 }
 

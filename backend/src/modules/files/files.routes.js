@@ -13,6 +13,7 @@ const {
   requireRole
 } = require("../../middleware/auth.middleware");
 const { getRequestMeta } = require("../../utils/request.util");
+const { UPLOAD_ROOT } = require("../../utils/fileStorage.util");
 
 const router = express.Router();
 
@@ -23,9 +24,15 @@ function sendStoredFile(res, record) {
     `inline; filename="${encodeURIComponent(record.originalName || "file")}"`
   );
   res.setHeader("Cache-Control", "private, max-age=300");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+  const resolvedPath = path.resolve(record.storagePath);
+  if (!resolvedPath.startsWith(UPLOAD_ROOT)) {
+    return res.status(403).json({ success: false, message: "Forbidden path" });
+  }
 
   // res.sendFile supports Range requests (video seeking) out of the box.
-  res.sendFile(path.resolve(record.storagePath));
+  res.sendFile(resolvedPath);
 }
 
 function notFound(res) {

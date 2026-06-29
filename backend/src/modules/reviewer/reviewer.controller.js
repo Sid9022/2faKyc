@@ -61,12 +61,9 @@ async function listCases(req, res, next) {
 async function getCaseDetail(req, res, next) {
   try {
     const result = await getKycCaseDetail(req.params.kycId, signMediaToken(req.user));
-    // Bug B3: every detail-page read is sensitive (full PAN, email,
-    // mobile). Audit-log it so we can answer "who looked at which
-    // case, when, from where" without relying on access logs.
-    logReviewerCaseRead(req, result?.case?.kycId).catch((err) =>
-      console.error("[audit] case_read log failed:", err.message)
-    );
+    if (result.success && result.case?.kycId) {
+      await logReviewerCaseRead(req, result.case.kycId);
+    }
     return res.status(result.statusCode || 200).json(result);
   } catch (error) {
     return next(error);

@@ -247,10 +247,11 @@ export async function getKycResubmissionWorkspace(token) {
 
 // ---------- reviewer APIs ----------
 
-export async function getReviewerCases(status = "", pan = "") {
+export async function getReviewerCases(status = "", pan = "", mobile = "") {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (pan) params.set("pan", pan);
+  if (mobile) params.set("mobile", mobile);
   const query = params.toString();
 
   const response = await api.get(`/api/reviewer/kyc-cases${query ? `?${query}` : ""}`);

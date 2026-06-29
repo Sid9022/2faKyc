@@ -24,6 +24,7 @@ const filters = [
 ];
 
 const PAN_REGEX = /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/;
+const MOBILE_REGEX = /^[0-9]{10}$/;
 
 export default function ReviewerCasesPage() {
   const [cases, setCases] = useState([]);
@@ -36,14 +37,16 @@ export default function ReviewerCasesPage() {
 
   // Full PANs are never stored or listed, so a complete PAN typed in the
   // search box triggers an exact server-side hash lookup instead.
+  // We do the same for 10-digit mobile numbers.
   const panSearch = PAN_REGEX.test(search.trim()) ? search.trim() : "";
+  const mobileSearch = MOBILE_REGEX.test(search.trim()) ? search.trim() : "";
 
-  async function loadCases(nextStatus = status, pan = panSearch) {
+  async function loadCases(nextStatus = status, pan = panSearch, mobile = mobileSearch) {
     try {
       setIsLoading(true);
       setError("");
 
-      const result = await getReviewerCases(nextStatus, pan);
+      const result = await getReviewerCases(nextStatus, pan, mobile);
 
       if (!result.success) {
         setError(result.message || "Unable to load cases.");
@@ -59,9 +62,9 @@ export default function ReviewerCasesPage() {
   }
 
   useEffect(() => {
-    loadCases(status, panSearch);
+    loadCases(status, panSearch, mobileSearch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, panSearch]);
+  }, [status, panSearch, mobileSearch]);
 
   const filteredCases = cases.filter((item) => {
     const term = search.trim().toLowerCase();
@@ -70,6 +73,7 @@ export default function ReviewerCasesPage() {
 
     // Server already did an exact hash lookup for a full PAN.
     if (panSearch) return true;
+    if (mobileSearch) return true;
 
     return (
       item.buyerName?.toLowerCase().includes(term) ||
@@ -146,7 +150,7 @@ export default function ReviewerCasesPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search name/email/purchase — or type full PAN"
+              placeholder="Search name/email/purchase — or type full PAN / mobile"
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/30"
             />
           </div>
