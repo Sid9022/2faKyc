@@ -4,7 +4,7 @@ const { z } = require("zod");
 const prisma = require("../../config/prisma");
 const { getAllSettings, setSetting } = require("../../utils/settings.util");
 const { listEmailLogs } = require("../email/email.service");
-const { decryptField, hashMobile, maskEmail, maskMobile } = require("../../utils/crypto.util");
+const { decryptField, hashMobile } = require("../../utils/crypto.util");
 const { buildUserNameMap } = require("../reviewer/reviewer.service");
 const { createKycFromPurchase } = require("../kyc/kyc.service");
 
@@ -526,8 +526,6 @@ async function listAdminKycCases(filters = {}) {
   const where = {};
   if (filters.status) where.overallStatus = filters.status;
 
-  // Mobile search — same fraud-trail use case as the reviewer list.
-  // Empty input is silently ignored.
   if (filters.mobile) {
     const mobileHash = hashMobile(filters.mobile);
     if (mobileHash) where.mobileHash = mobileHash;
@@ -593,12 +591,12 @@ async function listAdminKycCases(filters = {}) {
       kycId: item.id,
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
-      // Bug B4: never decrypt PII in the admin list response either.
-      // Admin list can render up to 500 cases per page. Detail-page
-      // endpoints still return full PII for the active case.
-      buyerEmail: maskEmail(item.buyerEmail),
-      buyerMobile: maskMobile(decryptField(item.buyerMobile)),
-      pan: item.panMasked,
+      // Full PII is intentionally returned so admins can search/match
+      // cases client-side. buyerMobile is decrypted here (legacy rows are
+      // encrypted; decryptField passes any plaintext through unchanged).
+      buyerEmail: decryptField(item.buyerEmail),
+      buyerMobile: decryptField(item.buyerMobile),
+      pan: decryptField(item.panEnc),
       panMasked: item.panMasked,
       entityLabel: item.entityLabel,
       serviceType: item.serviceType,

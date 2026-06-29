@@ -1,5 +1,5 @@
 const prisma = require("../../config/prisma");
-const { decryptField, hashMobile, maskEmail, maskMobile } = require("../../utils/crypto.util");
+const { decryptField, hashMobile } = require("../../utils/crypto.util");
 const { validatePAN, hashPAN } = require("../kyc/pan.utils");
 const { getAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
 const { createSecureKycLinkForKyc } = require("../kyc-link/kycLink.service");
@@ -114,14 +114,12 @@ async function listKycCases(filters = {}) {
       kycId: item.id,
       purchaseId: item.purchaseId,
       buyerName: item.buyerName,
-      // Bug B1 + B2: never decrypt PII in the list response. The list
-      // view can render up to 300 cases per page — exposing full PAN +
-      // email makes the entire buyer DB one screenshot / shoulder-surf
-      // away. Detail-page endpoints still return full PII for the
-      // reviewer's working case.
-      buyerEmail: maskEmail(item.buyerEmail),
-      buyerMobile: maskMobile(decryptField(item.buyerMobile)),
-      pan: item.panMasked,
+      // Full PII is intentionally returned so reviewers can search/match
+      // cases client-side. buyerMobile is decrypted here (legacy rows are
+      // encrypted; decryptField passes any plaintext through unchanged).
+      buyerEmail: decryptField(item.buyerEmail),
+      buyerMobile: decryptField(item.buyerMobile),
+      pan: decryptField(item.panEnc),
       panMasked: item.panMasked,
       entityType: item.entityType,
       entityLabel: item.entityLabel,
@@ -156,7 +154,11 @@ async function listKycCases(filters = {}) {
   });
 }
 
-async function getKycCaseDetail(kycId) {
+async function getKycCaseDetail(kycId, mediaToken = "") {
+  // Media URLs carry a short-lived, read-only ?mt= token (never the full
+  // access token) so an <img>/<video> src that leaks is harmless.
+  const mt = mediaToken ? `?mt=${encodeURIComponent(mediaToken)}` : "";
+
   const kyc = await prisma.kycMaster.findUnique({
     where: { id: kycId },
     include: {
@@ -273,8 +275,8 @@ async function getKycCaseDetail(kycId) {
         mimeType: file.mimeType,
         sizeBytes: file.sizeBytes,
         fileHash: file.fileHash,
-        // Authenticated streaming endpoint — append your access token.
-        fileUrl: `/api/reviewer/files/${file.id}`,
+        // Authenticated streaming endpoint; the media token is already baked in.
+        fileUrl: `/api/reviewer/files/${file.id}${mt}`,
         version: file.version,
         isCurrent: file.isCurrent,
         uploadedAt: file.uploadedAt,
@@ -312,7 +314,7 @@ async function getKycCaseDetail(kycId) {
           attempts: kyc.videoDeclaration.attempts.map((attempt) => ({
             id: attempt.id,
             status: attempt.status,
-            streamUrl: `/api/reviewer/video-attempts/${attempt.id}/stream`,
+            streamUrl: `/api/reviewer/video-attempts/${attempt.id}/stream${mt}`,
             mimeType: attempt.mimeType,
             sizeBytes: attempt.sizeBytes,
             durationSeconds: attempt.durationSeconds,

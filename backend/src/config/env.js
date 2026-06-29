@@ -71,6 +71,10 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().default("30m"),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(7),
 
+  // Short-lived, read-only token used for media (<img>/<video>) URLs so the
+  // full access token never has to appear in a query string.
+  MEDIA_TOKEN_TTL: z.string().default("30m"),
+
   KYC_LINK_EXPIRY_DAYS: z.coerce.number().default(30),
   KYC_BUYER_BASE_URL: z.string().default("http://localhost:5173"),
   KYC_API_BASE_URL: z.string().default("http://localhost:5000"),

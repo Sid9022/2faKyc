@@ -280,55 +280,59 @@ test("A18: getResubmissionWorkspace does not decrypt the buyer's email (contract
 // ---------- Phase 8: security hardening regressions (B1, B2, B3, B4,
 // B5, B11, B12) ----------
 
-test("B1, B2: reviewer listKycCases returns panMasked and masked email (no full PII)", () => {
+test("B1, B2: reviewer listKycCases intentionally returns full PII for client-side search", () => {
   const src = read(
     path.join(__dirname, "../src/modules/reviewer/reviewer.service.js"),
     "utf8"
   );
-  // Find the list response builder. The substring after "return cases.map"
-  // must contain maskEmail(...) for buyerEmail and must NOT contain
-  // decryptField(...).
+  // Deliberate product decision: the reviewer dashboard searches/matches
+  // cases client-side, so the list returns full PAN/email/mobile. Mobile is
+  // decrypted via decryptField so legacy (encrypted) rows still render
+  // (decryptField passes any plaintext through unchanged). panMasked is
+  // still returned alongside for display. If you are tempted to re-mask
+  // these, that is a transport/RBAC concern — keep them over TLS + auth.
   const listMap = src.match(/return\s+cases\.map\([^)]+\)\s*=>\s*\{[\s\S]*?\}\s*\)\s*;/);
   assert.ok(listMap, "listKycCases map block must exist");
   const body = listMap[0];
   assert.ok(
-    body.includes("maskEmail(") && body.includes("item.buyerEmail"),
-    "list must use maskEmail(item.buyerEmail) — B2"
+    body.includes("decryptField(item.buyerEmail)"),
+    "list returns decrypted email — B2"
   );
   assert.ok(
-    !body.includes("decryptField(item.buyerEmail)"),
-    "list must NOT decrypt the buyer's email — B2"
+    body.includes("decryptField(item.buyerMobile)"),
+    "list returns decrypted mobile so legacy rows render — B2"
   );
-  // PAN: must NOT decrypt panEnc, must reference panMasked.
   assert.ok(
-    !body.includes("decryptField(item.panEnc)"),
-    "list must NOT decrypt panEnc — B1"
+    body.includes("decryptField(item.panEnc)"),
+    "list returns decrypted PAN for search — B1"
   );
   assert.ok(
     body.includes("panMasked"),
-    "list must reference panMasked — B1"
+    "list still includes panMasked for display — B1"
   );
 });
 
-test("B4: admin listAdminKycCases returns panMasked and masked email", () => {
+test("B4: admin listAdminKycCases intentionally returns full PII for client-side search", () => {
   const src = read(
     path.join(__dirname, "../src/modules/admin/admin.service.js"),
     "utf8"
   );
+  // Same deliberate decision as the reviewer list (see B1/B2): the admin
+  // console matches cases client-side, so full PAN/email/mobile are returned.
   const listMap = src.match(/return\s+\{[\s\S]*?kycId:\s*item\.id[\s\S]*?\}\s*;\s*\}\s*\);/);
   assert.ok(listMap, "admin list response must exist");
   const body = listMap[0];
   assert.ok(
-    body.includes("maskEmail(item.buyerEmail)"),
-    "admin list must use maskEmail — B4"
+    body.includes("decryptField(item.buyerEmail)"),
+    "admin list returns decrypted email — B4"
   );
   assert.ok(
-    !body.includes("decryptField(item.buyerEmail)"),
-    "admin list must NOT decrypt email — B4"
+    body.includes("decryptField(item.buyerMobile)"),
+    "admin list returns decrypted mobile so legacy rows render — B4"
   );
   assert.ok(
-    !body.includes("decryptField(item.panEnc)"),
-    "admin list must NOT decrypt panEnc — B4"
+    body.includes("decryptField(item.panEnc)"),
+    "admin list returns decrypted PAN for search — B4"
   );
 });
 
@@ -614,7 +618,7 @@ test("DUP3: case 1 — same PAN + same name + same mobile + done → bypass", ()
   );
   // The response must NOT contain a kycLink — no buyer URL is sent.
   const bypassBlock = src.match(
-    /async\s+function\s+handleDuplicateBuyerBypass[\s\S]*?\n\}\n/
+    /async\s+function\s+handleDuplicateBuyerBypass[\s\S]*?\n\}\r?\n/
   );
   assert.ok(bypassBlock, "bypass handler block must exist");
   assert.ok(
@@ -635,7 +639,7 @@ test("DUP4: case 3 — same PAN + same name + DIFFERENT mobile → audit-only Ky
   // The audit row must be a real KycMaster so the new mobile is
   // searchable (encrypted buyerMobile + mobileHash).
   const block = src.match(
-    /async\s+function\s+handleDuplicateBuyerDifferentMobile[\s\S]*?\n\}\n/
+    /async\s+function\s+handleDuplicateBuyerDifferentMobile[\s\S]*?\n\}\r?\n/
   );
   assert.ok(block, "case 3 handler block must exist");
   assert.ok(
@@ -787,7 +791,7 @@ test("DUP12: case 3 audit KycMaster is terminal — currentStage marks it", () =
   // The audit row should carry a recognisable currentStage so admins
   // can tell it apart from genuine cancelled KYCs.
   const block = src.match(
-    /async\s+function\s+handleDuplicateBuyerDifferentMobile[\s\S]*?\n\}\n/
+    /async\s+function\s+handleDuplicateBuyerDifferentMobile[\s\S]*?\n\}\r?\n/
   );
   assert.ok(block, "case 3 handler block must exist");
   assert.ok(

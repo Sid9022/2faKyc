@@ -74,6 +74,7 @@ export default function ReviewerCasesPage() {
     return (
       item.buyerName?.toLowerCase().includes(term) ||
       item.buyerEmail?.toLowerCase().includes(term) ||
+      item.buyerMobile?.toLowerCase().includes(term) ||
       item.pan?.toLowerCase().includes(term) ||
       item.panMasked?.toLowerCase().includes(term) ||
       item.purchaseId?.toLowerCase().includes(term)

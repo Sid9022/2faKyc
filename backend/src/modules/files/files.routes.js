@@ -9,7 +9,7 @@ const {
   logFileAccess
 } = require("./files.service");
 const {
-  requireAuthAllowQueryToken,
+  requireMediaToken,
   requireRole
 } = require("../../middleware/auth.middleware");
 const { getRequestMeta } = require("../../utils/request.util");
@@ -37,12 +37,13 @@ function notFound(res) {
 }
 
 /**
- * Reviewer/admin access — JWT required (header or ?access_token= for
- * <img>/<video> tags). Every access is audit-logged.
+ * Reviewer/admin access — JWT required (Authorization header, or a
+ * short-lived media token via ?mt= for <img>/<video> tags). Every access
+ * is audit-logged.
  */
 router.get(
   "/reviewer/files/:fileId",
-  requireAuthAllowQueryToken,
+  requireMediaToken,
   requireRole("reviewer", "admin"),
   async (req, res, next) => {
     try {
@@ -67,7 +68,7 @@ router.get(
 
 router.get(
   "/reviewer/video-attempts/:attemptId/stream",
-  requireAuthAllowQueryToken,
+  requireMediaToken,
   requireRole("reviewer", "admin"),
   async (req, res, next) => {
     try {
