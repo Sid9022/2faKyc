@@ -44,3 +44,7 @@ Thumbs.db
 
 backend/.dev-certs/
 frontend/.dev-certs/
+
+# Test scripts
+backend/check.js
+backend/check_hash.js

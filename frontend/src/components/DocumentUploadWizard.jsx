@@ -105,14 +105,18 @@ function getSlots(step) {
     ];
   }
 
+  const isPan = step.documentKey?.toLowerCase().includes("pan");
+
   return [
     {
       name: "document",
       label:
         step.inputMode === "upload_or_live_photo"
-          ? "Upload file or photo"
-          : "Upload file",
-      accept: "image/*,.pdf"
+          ? "Upload image or photo"
+          : isPan
+            ? "Upload image only"
+            : "Upload file",
+      accept: isPan ? "image/*" : "image/*,.pdf"
     }
   ];
 }
@@ -254,7 +258,19 @@ export default function DocumentUploadWizard({
     }
   }
 
-  function handleFileChange(slot, file) {
+  function handleFileChange(slot, file, event) {
+    if (file) {
+      const isPan = activeStep?.documentKey?.toLowerCase().includes("pan");
+      if (isPan && !file.type.startsWith("image/")) {
+        setError("Invalid file type. Please upload images only for this section.");
+        if (event && event.target) {
+          event.target.value = "";
+        }
+        return;
+      }
+    }
+    setError("");
+
     setSelectedFiles((prev) => ({
       ...prev,
       [slot]: file
@@ -268,10 +284,16 @@ export default function DocumentUploadWizard({
       return Object.values(selectedFiles).some(Boolean) || isStepSaved(activeStep);
     }
 
+    const needsNewFiles = activeStep?.status === "resubmission_required";
+
     return slots.every((slot) => {
       const alreadyUploaded = activeStep?.currentFiles?.some(
         (file) => file.fileSlot === slot.name
       );
+
+      if (needsNewFiles) {
+        return !!selectedFiles[slot.name];
+      }
 
       return selectedFiles[slot.name] || alreadyUploaded;
     });
@@ -821,7 +843,7 @@ export default function DocumentUploadWizard({
                     currentFile={activeStep.currentFiles?.find(
                       (file) => file.fileSlot === slot.name
                     )}
-                    onChange={(file) => handleFileChange(slot.name, file)}
+                    onChange={(file, event) => handleFileChange(slot.name, file, event)}
                     replaceLabel={t.replaceFile}
                     chooseLabel={t.chooseFile}
                   />
@@ -1083,7 +1105,7 @@ function FileInputCard({
             </div>
 
             <p className="mt-1 hidden text-xs leading-5 text-slate-500 sm:block">
-              JPG, PNG, WEBP, or PDF. Max 10 MB.
+              {slot.accept?.includes("pdf") ? "JPG, PNG, WEBP, or PDF. Max 10 MB." : "JPG, PNG, or WEBP only. Max 10 MB."}
             </p>
 
             {currentFile && (
@@ -1137,7 +1159,7 @@ function FileInputCard({
           <input
             type="file"
             accept={slot.accept}
-            onChange={(event) => onChange(event.target.files?.[0] || null)}
+            onChange={(event) => onChange(event.target.files?.[0] || null, event)}
             className="hidden"
           />
         </label>
@@ -1152,6 +1174,11 @@ function getInputHelp(step) {
   }
   if (step.inputMode === "live_photo_front") {
     return "Please upload/capture the front photo.";
+  }
+
+  const isPan = step.documentKey?.toLowerCase().includes("pan");
+  if (isPan) {
+    return "Please upload a clear scanned image of the document. (Upload images only)";
   }
   return "Please upload a clear scanned PDF or image copy of the document.";
 }

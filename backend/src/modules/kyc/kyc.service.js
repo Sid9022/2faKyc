@@ -253,9 +253,8 @@ async function handleDuplicateBuyer(
     return null; // different buyerName — fall through to Rule 3
   }
 
-  const storedMobile = decryptField(sameNameMatch.buyerMobile) || null;
-  const mobileMatches =
-    (normalizedInputMobile || null) === (storedMobile || null);
+  const inputMobileHash = hashMobile(normalizedInputMobile);
+  const mobileMatches = inputMobileHash === sameNameMatch.mobileHash;
 
   if (mobileMatches && KYC_DONE_STATUSES.has(sameNameMatch.overallStatus)) {
     // Case 1: same buyer, same mobile, already progressed past

@@ -239,7 +239,7 @@ function OverviewTab({ onOpenCases, onOpenEmails }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getAdminDashboard(), getAdminKycCases("")])
+    Promise.all([getAdminDashboard(), getAdminKycCases("", 8)])
       .then(([dashboard, caseList]) => {
         setData(dashboard.data || dashboard);
         setCases(caseList.data || []);
@@ -578,6 +578,10 @@ const CASE_FILTERS = [
 function CasesTab({ initialFilter = "" }) {
   const [cases, setCases] = useState([]);
   const [status, setStatus] = useState(initialFilter);
+
+  useEffect(() => {
+    setStatus(initialFilter);
+  }, [initialFilter]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");

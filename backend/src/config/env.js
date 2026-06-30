@@ -87,7 +87,7 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   EMAIL_PROVIDER_URL: z
     .string()
-    .default("http://api.dial2verify.com/v2.5/sendMail_SMTP.php"),
+    .default("https://api.dial2verify.com/v2.5/sendMail_SMTP.php"),
   EMAIL_FROM: z.string().default("no-reply@2factor.in"),
 
   REMINDER_SCHEDULER_ENABLED: z

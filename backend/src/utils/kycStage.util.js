@@ -57,10 +57,25 @@ function isFinalKycStatus(kyc) {
   return Boolean(kyc?.overallStatus && FINAL_KYC_STATUS_SET.has(kyc.overallStatus));
 }
 
+const VALID_KYC_STATUSES = new Set([
+  "created",
+  "link_sent",
+  "opened",
+  "in_progress",
+  "submitted",
+  "under_review",
+  "resubmission_required",
+  "approved",
+  "rejected",
+  "cancelled",
+  "expired"
+]);
+
 module.exports = {
   RESUBMISSION_STAGES,
   FINAL_KYC_STATUSES,
   FINAL_KYC_STATUS_SET,
+  VALID_KYC_STATUSES,
   isResubmissionMode,
   isFinalKycStatus
 };

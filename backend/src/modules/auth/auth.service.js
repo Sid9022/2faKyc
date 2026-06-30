@@ -137,6 +137,15 @@ async function refresh(rawRefreshToken, requestMeta = {}) {
     stored.expiresAt <= new Date() ||
     stored.user.status !== "active"
   ) {
+    if (stored && stored.revokedAt) {
+      // Replay detected! Revoke all active tokens for this user.
+      await prisma.refreshToken.updateMany({
+        where: { userId: stored.userId, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
+      console.warn(`[auth] Refresh token reuse detected for user ${stored.userId}. All sessions revoked.`);
+    }
+
     return {
       success: false,
       statusCode: 401,

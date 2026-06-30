@@ -11,7 +11,6 @@ import axios from "axios";
 function resolveApiBaseUrl() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL;
   if (typeof fromEnv === "string") return fromEnv;
-  if (import.meta.env.DEV) return "";
   return "";
 }
 
@@ -299,9 +298,12 @@ export async function getAdminDashboard() {
   return response.data;
 }
 
-export async function getAdminKycCases(status = "") {
-  const query = status ? `?status=${status}` : "";
-  const response = await api.get(`/api/admin/kyc-cases${query}`);
+export async function getAdminKycCases(status = "", limit = 200) {
+  const query = new URLSearchParams();
+  if (status) query.set("status", status);
+  if (limit) query.set("limit", limit);
+  
+  const response = await api.get(`/api/admin/kyc-cases?${query.toString()}`);
   return response.data;
 }
 

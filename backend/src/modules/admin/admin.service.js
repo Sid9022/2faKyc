@@ -4,8 +4,11 @@ const { z } = require("zod");
 const prisma = require("../../config/prisma");
 const { getAllSettings, setSetting } = require("../../utils/settings.util");
 const { listEmailLogs } = require("../email/email.service");
-const { decryptField, hashMobile } = require("../../utils/crypto.util");
-const { buildUserNameMap } = require("../reviewer/reviewer.service");
+const { encryptField, decryptField, hashMobile } = require("../../utils/crypto.util");
+const { getAutoChecksForKyc } = require("../auto-checks/autoChecks.service");
+const { buildUserNameMap } = require("../../utils/user.util");
+const { VALID_KYC_STATUSES } = require("../../utils/kycStage.util");
+
 const { createKycFromPurchase } = require("../kyc/kyc.service");
 
 /**
@@ -524,7 +527,9 @@ async function getDashboardStats() {
 
 async function listAdminKycCases(filters = {}) {
   const where = {};
-  if (filters.status) where.overallStatus = filters.status;
+  if (filters.status && VALID_KYC_STATUSES.has(filters.status)) {
+    where.overallStatus = filters.status;
+  }
 
   if (filters.mobile) {
     const mobileHash = hashMobile(filters.mobile);

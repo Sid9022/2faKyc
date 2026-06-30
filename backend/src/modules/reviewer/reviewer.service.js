@@ -9,6 +9,8 @@ const {
   kycApprovedEmail,
   kycRejectedEmail
 } = require("../email/email.templates");
+const { buildUserNameMap } = require("../../utils/user.util");
+const { VALID_KYC_STATUSES } = require("../../utils/kycStage.util");
 
 const REVIEW_ALLOWED_STATUSES = ["submitted", "under_review", "resubmission_required"];
 
@@ -16,29 +18,14 @@ function normalizeDecision(decision) {
   return String(decision || "").trim().toLowerCase();
 }
 
-/**
- * Resolves user ids (reviewedBy / audit actorId) to display names so the
- * UI can show WHO did each action. Unknown ids (legacy "dev-reviewer",
- * system actors) simply resolve to undefined.
- */
-async function buildUserNameMap(ids) {
-  const uniqueIds = [...new Set(ids.filter(Boolean))];
-  if (uniqueIds.length === 0) return new Map();
 
-  const users = await prisma.user.findMany({
-    where: { id: { in: uniqueIds } },
-    select: { id: true, fullName: true, role: true }
-  });
-
-  return new Map(users.map((user) => [user.id, user]));
-}
 
 function canReviewKycStatus(status) {
   return REVIEW_ALLOWED_STATUSES.includes(status);
 }
 
 async function listKycCases(filters = {}) {
-  const status = filters.status;
+  const status = filters.status && VALID_KYC_STATUSES.has(filters.status) ? filters.status : null;
 
   const where = status
     ? { overallStatus: status }
@@ -801,6 +788,7 @@ async function finalDecisionForKyc(kycId, payload = {}, requestMeta = {}, review
             totalSteps: failedDocs.length,
             completedSteps: 0,
             isFinalSubmitted: false,
+            finalSubmittedAt: null,
             lastAction: "resubmission_required"
           }
         });
@@ -886,12 +874,12 @@ async function reopenKycCase(kycId, requestMeta = {}, reviewer = {}) {
     };
   }
 
-  if (existing.overallStatus !== "rejected") {
+  if (existing.overallStatus !== "rejected" && existing.overallStatus !== "approved") {
     return {
       success: false,
       statusCode: 400,
       code: "INVALID_STATE",
-      message: "Only rejected cases can be reopened."
+      message: "Only rejected or approved cases can be reopened."
     };
   }
 
@@ -910,7 +898,7 @@ async function reopenKycCase(kycId, requestMeta = {}, reviewer = {}) {
         actorType: "reviewer",
         actorId: reviewer.reviewerId,
         action: "case_reopened",
-        oldStatus: "rejected",
+        oldStatus: existing.overallStatus,
         newStatus: "under_review",
         ipAddress: requestMeta.ipAddress || null,
         userAgent: requestMeta.userAgent || null,
@@ -936,6 +924,5 @@ module.exports = {
   reviewDocumentSubmission,
   reviewVideoDeclaration,
   finalDecisionForKyc,
-  reopenKycCase,
-  buildUserNameMap
+  reopenKycCase
 };

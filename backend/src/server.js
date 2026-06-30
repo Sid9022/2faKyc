@@ -1,4 +1,3 @@
-// Force nodemon restart
 const env = require("./config/env");
 
 const express = require("express");
@@ -8,6 +7,7 @@ const helmet = require("helmet");
 const prisma = require("./config/prisma");
 const { flowLogMiddleware } = require("./config/flowLogger");
 const { publicLimiter } = require("./middleware/rateLimit.middleware");
+const { requireAuth, requireRole } = require("./middleware/auth.middleware");
 const { startReminderScheduler, stopReminderScheduler } = require("./modules/reminders/reminder.scheduler");
 
 const authRoutes = require("./modules/auth/auth.routes");
@@ -94,7 +94,8 @@ app.use("/api/admin", adminRoutes);
 
 // Dev/testing routes never exist in production builds.
 if (!env.isProduction) {
-  app.use("/api/dev", purchaseRoutes);
+  // Gated behind admin auth in dev so they aren't completely open.
+  app.use("/api/dev", requireAuth, requireRole("admin"), purchaseRoutes);
 }
 
 app.use((err, req, res, next) => {

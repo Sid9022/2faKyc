@@ -14,6 +14,7 @@ const {
 } = require("../../middleware/auth.middleware");
 const { getRequestMeta } = require("../../utils/request.util");
 const { UPLOAD_ROOT } = require("../../utils/fileStorage.util");
+const { publicLimiter } = require("../../middleware/rateLimit.middleware");
 
 const router = express.Router();
 
@@ -103,6 +104,7 @@ router.get(
  */
 router.get(
   "/public/kyc/:token/files/:fileId",
+  publicLimiter,
   async (req, res, next) => {
     try {
       const kycId = await getKycIdByToken(req.params.token);
@@ -122,6 +124,7 @@ router.get(
 
 router.get(
   "/public/kyc/:token/video-attempts/:attemptId/stream",
+  publicLimiter,
   async (req, res, next) => {
     try {
       const kycId = await getKycIdByToken(req.params.token);

@@ -138,7 +138,8 @@ async function listEmailLogs(filters = {}) {
   return logs.map((log) => ({
     ...log,
     recipient: log.recipientEnc ? decryptField(log.recipientEnc) : log.recipientMasked,
-    recipientEnc: undefined
+    recipientEnc: undefined,
+    recipientHash: undefined
   }));
 }
 

@@ -32,6 +32,14 @@ const loginLimiter = rateLimit({
   limit: 10
 });
 
+// Refresh token brute-force protection
+const refreshLimiter = rateLimit({
+  ...standardOptions,
+  windowMs: 5 * 60 * 1000,
+  limit: 20
+});
+
+
 // Webhook endpoint
 const webhookLimiter = rateLimit({
   ...standardOptions,
@@ -43,5 +51,6 @@ module.exports = {
   publicLimiter,
   uploadLimiter,
   loginLimiter,
+  refreshLimiter,
   webhookLimiter
 };
