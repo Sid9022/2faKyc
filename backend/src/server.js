@@ -1,3 +1,4 @@
+// Force nodemon restart
 const env = require("./config/env");
 
 const express = require("express");

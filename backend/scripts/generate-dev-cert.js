@@ -21,7 +21,8 @@ try {
     const gitPathCandidates = [
       'C:\\Program Files\\Git\\usr\\bin\\openssl.exe',
       'C:\\Program Files (x86)\\Git\\usr\\bin\\openssl.exe',
-      'C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe'
+      'C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe',
+      path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Git', 'usr', 'bin', 'openssl.exe')
     ];
 
     for (const p of gitPathCandidates) {
