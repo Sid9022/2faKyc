@@ -28,8 +28,8 @@ async function callValidator(filePath, mimeType) {
   );
 
   const controller = new AbortController();
-  // HF spaces can cold-start, so allow generous time before giving up.
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  // HF spaces can cold-start (taking 1-2 mins), so allow generous time before giving up.
+  const timeout = setTimeout(() => controller.abort(), 150000);
 
   try {
     const response = await fetch(env.PAN_VALIDATION_URL, {
@@ -39,6 +39,7 @@ async function callValidator(filePath, mimeType) {
     });
 
     const data = await response.json().catch(() => ({}));
+    console.log("HF Validation Response:", { ok: response.ok, statusCode: response.status, data });
     return { ok: response.ok, statusCode: response.status, data };
   } finally {
     clearTimeout(timeout);
@@ -104,18 +105,31 @@ async function validatePanCardForKyc({ filePath, mimeType, kyc }) {
 
   const data = outcome.data || {};
 
-  // Definitive "not a PAN card" — always blocks, regardless of fail-open.
-  // The recognizer reports rejection via status="rejected" / valid_pan=false.
-  const accepted = data.status === "accepted" || data.valid_pan === true;
+  // Check if it's the new format (has "files" array)
+  let accepted = false;
+  let reason = "This does not look like a valid PAN card.";
+  let extractedData = {};
+
+  if (data.request_status && Array.isArray(data.files) && data.files.length > 0) {
+    const fileResult = data.files[0];
+    accepted = fileResult.decision === "accepted" || fileResult.status === "accepted" || fileResult.decision === "allow";
+    reason = fileResult.reason || reason;
+    extractedData = fileResult.best_result?.result || {};
+  } else {
+    // Old format
+    accepted = data.status === "accepted" || data.valid_pan === true;
+    reason = data.message || data.detail || data.reason || reason;
+    extractedData = data.data || {};
+  }
+
+  // Handle generic endpoint failures (e.g. 404 Not Found from FastAPI)
+  if (outcome.statusCode === 404 && data.detail === "Not Found") {
+    reason = "The validation service endpoint is currently unavailable (404 Not Found). Please verify the PAN_VALIDATION_URL in .env";
+    accepted = false;
+  }
 
   if (!accepted) {
     // message = normal rejection; detail = FastAPI validation error
-    // (e.g. "Image is too small. Minimum dimension is 64 pixels.").
-    const reason =
-      data.message ||
-      data.detail ||
-      data.reason ||
-      "This does not look like a valid PAN card.";
     return {
       gate: "reject",
       code: "PAN_CARD_INVALID",
@@ -125,12 +139,12 @@ async function validatePanCardForKyc({ filePath, mimeType, kyc }) {
   }
 
   // Accepted — cross-check against what we know about this KYC.
-  const extractedPan = String(data.data?.pan_number || "").toUpperCase();
+  const extractedPan = String(extractedData.pan_number || "").toUpperCase();
   // New model: entity_code/entity_type; older model: classification_code/name.
   const classificationCode =
-    data.data?.entity_code || data.data?.classification_code || null;
+    extractedData.entity_code || extractedData.classification_code || null;
   const classificationName =
-    data.data?.entity_type || data.data?.classification_name || null;
+    extractedData.entity_type || extractedData.classification_name || null;
 
   const panMatchesPurchase = extractedPan
     ? hashPAN(extractedPan) === kyc.panHash
@@ -141,10 +155,10 @@ async function validatePanCardForKyc({ filePath, mimeType, kyc }) {
 
   const record = {
     status: "accepted",
-    extractedPanMasked: maskPAN(extractedPan) || data.data?.masked_pan || null,
+    extractedPanMasked: maskPAN(extractedPan) || extractedData.masked_pan || null,
     classificationCode,
     classificationName,
-    kycRoute: data.data?.kyc_route || null,
+    kycRoute: extractedData.kyc_route || null,
     panMatchesPurchase,
     classificationMatchesEntity
   };
